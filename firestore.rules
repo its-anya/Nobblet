@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Basic authentication check
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+    
+    // Check if user is a participant in the chat
+    function isParticipant(resource) {
+      return isAuthenticated() && 
+             (resource.data.isPublic == true || 
+              resource.data.participants.hasAny([request.auth.uid]));
+    }
+    
+    // Check if user is the author of a message
+    function isAuthor(resource) {
+      return isAuthenticated() && 
+             resource.data.senderId == request.auth.uid;
+    }
+    
+    // User profiles
+    match /users/{userId} {
+      // Allow users to read any user profile
+      allow read: if isAuthenticated();
+      
+      // Allow users to edit only their own profile
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Ensure username is not empty on creation
+      allow create: if isAuthenticated() && 
+                      request.auth.uid == userId && 
+                      request.resource.data.username != null &&
+                      request.resource.data.username is string &&
+                      request.resource.data.username.size() > 0;
+                      
+      // Allow list queries on users collection (needed for contacts)
+      match /{document=**} {
+        allow read: if isAuthenticated();
+      }
+    }
+    
+    // Messages
+    match /messages/{messageId} {
+      // Allow reading if user is authenticated and either:
+      // 1. The message is public, or
+      // 2. The user is a participant in the conversation
+      allow read: if isAuthenticated() && 
+                   (resource.data.isPublic == true || 
+                    (resource.data.participants != null && 
+                     resource.data.participants.hasAny([request.auth.uid])));
+      
+      // Allow creating if user is authenticated and either:
+      // 1. Creating a public message, or
+      // 2. Creating a message where they are a participant
+      allow create: if isAuthenticated() && 
+                     (request.resource.data.isPublic == true || 
+                      (request.resource.data.participants != null &&
+                       request.resource.data.participants.hasAny([request.auth.uid])));
+      
+      // Simplified update rule for reactions
+      allow update: if isAuthenticated() && 
+                    // Either participating in the conversation
+                    ((resource.data.isPublic == true || 
+                      (resource.data.participants != null && 
+                       resource.data.participants.hasAny([request.auth.uid]))) &&
+                    // And only changing reactions, nothing else
+                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])));
+      
+      // Allow deletion only if the user is the author of the message
+      allow delete: if isAuthor(resource);
+      
+      // Allow list queries on messages for contacts
+      allow list: if isAuthenticated();
+    }
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+} 

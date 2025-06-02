@@ -1,0 +1,77 @@
+{
+  "project_info": {
+    "project_number": "298332806326",
+    "firebase_url": "https://nobblet-default-rtdb.firebaseio.com",
+    "project_id": "nobblet",
+    "storage_bucket": "nobblet.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:298332806326:android:37514fcb4ee76d7c16da17",
+        "android_client_info": {
+          "package_name": "com.rr.nobblet"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "298332806326-k5d0hm23f3vkhjb3v2f0l7qmr1lkfkvm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCGTNozQkwLWOtdlRjvf1eJJEsMHKagRNY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "298332806326-k5d0hm23f3vkhjb3v2f0l7qmr1lkfkvm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:298332806326:android:a7829cbbc5946ce916da17",
+        "android_client_info": {
+          "package_name": "com.rr.nobblet.nobblet"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "298332806326-k5k39kjmenmgqc1a9hm0hgfqholktbbk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.rr.nobblet.nobblet",
+            "certificate_hash": "fecb5f62afa8fe1ca5356d83a6464c5f9a7ceb55"
+          }
+        },
+        {
+          "client_id": "298332806326-k5d0hm23f3vkhjb3v2f0l7qmr1lkfkvm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCGTNozQkwLWOtdlRjvf1eJJEsMHKagRNY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "298332806326-k5d0hm23f3vkhjb3v2f0l7qmr1lkfkvm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

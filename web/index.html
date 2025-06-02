@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Small Chats. Big Impact.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Nobblet">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Nobblet</title>
+  <link rel="manifest" href="manifest.json">
+
+  <script>
+    // The value below is injected by flutter build, do not touch.
+    var serviceWorkerVersion = null;
+  </script>
+  
+  <!-- This script adds the flutter initialization JS code -->
+  <script src="flutter.js" defer></script>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  
+  <style>
+    body {
+      background-color: #0B132B;
+      margin: 0;
+      overflow: hidden;
+    }
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: #00F0FF;
+      font-family: 'Roboto', Arial, sans-serif;
+    }
+    .logo {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00F0FF 0%, #00E676 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 24px;
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+    }
+    .logo-inner {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background-color: #0B132B;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 48px;
+      font-weight: bold;
+      color: #00F0FF;
+      text-shadow: 0 0 10px rgba(0, 240, 255, 0.8);
+    }
+    .progress {
+      width: 120px;
+      height: 4px;
+      background-color: rgba(0, 240, 255, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+      margin-top: 20px;
+    }
+    .progress-bar {
+      position: absolute;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #00F0FF, #00E676);
+      animation: loading 1.5s infinite linear;
+      border-radius: 2px;
+    }
+    @keyframes loading {
+      0% { left: -100%; }
+      50% { left: 100%; }
+      100% { left: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading" class="loading">
+    <div class="logo">
+      <div class="logo-inner">N</div>
+    </div>
+    <h1 style="font-size: 28px; margin: 0; letter-spacing: 3px;">NOBBLET</h1>
+    <p style="margin: 8px 0; color: #A0A0A0;">Small Chats. Big Impact.</p>
+    <div class="progress">
+      <div class="progress-bar"></div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('load', function(ev) {
+      // Initialize Firebase first
+      if (typeof firebase !== 'undefined') {
+        try {
+          firebase.initializeApp(firebaseConfig);
+          console.log('Firebase initialized successfully');
+        } catch (e) {
+          console.error('Error initializing Firebase:', e);
+        }
+      }
+      
+      // Download main.dart.js
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        },
+        onEntrypointLoaded: async function(engineInitializer) {
+          try {
+            const appRunner = await engineInitializer.initializeEngine();
+            // Only hide the loading screen when we're ready to run the app
+            document.getElementById('loading').style.display = 'none';
+            await appRunner.runApp();
+          } catch (e) {
+            console.error('Error initializing Flutter app:', e);
+            document.getElementById('loading').innerHTML += 
+              '<p style="color: red;">Failed to load app. Please refresh the page.</p>';
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html> 
