@@ -288,6 +288,162 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
     }
   }
 
+  // Ban or unban a user
+  Future<void> _toggleBanStatus(String userId, bool makeBanned) async {
+    try {
+      await _chatService.setBanStatus(userId, makeBanned);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(makeBanned 
+              ? 'User was banned successfully' 
+              : 'User was unbanned successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Refresh user list
+      await _loadUsers();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating ban status: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  // Delete a user account
+  Future<void> _deleteUserAccount(String userId) async {
+    try {
+      // Show confirmation dialog
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete User Account'),
+          content: const Text(
+            'This will permanently delete the user account and all their messages. This action cannot be undone.',
+            style: TextStyle(color: Colors.red),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('DELETE'),
+            ),
+          ],
+        ),
+      );
+      
+      if (confirm != true) return;
+      
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+      
+      // Delete the user account
+      await _chatService.deleteUserAccount(userId);
+      
+      // Close loading indicator
+      if (mounted) Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('User account deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Refresh user list
+      await _loadUsers();
+    } catch (e) {
+      // Close loading indicator if still showing
+      if (mounted) Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting user account: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  // Delete all public messages
+  Future<void> _deleteAllPublicMessages() async {
+    try {
+      // Show confirmation dialog
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete All Public Messages'),
+          content: const Text(
+            'This will permanently delete ALL messages in the public chat. This action cannot be undone.',
+            style: TextStyle(color: Colors.red),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('DELETE ALL'),
+            ),
+          ],
+        ),
+      );
+      
+      if (confirm != true) return;
+      
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+      
+      // Delete all public messages
+      await _chatService.deleteAllPublicMessages();
+      
+      // Close loading indicator
+      if (mounted) Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All public messages deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Refresh stats
+      await _loadDashboardStats();
+    } catch (e) {
+      // Close loading indicator if still showing
+      if (mounted) Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting public messages: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -469,6 +625,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
               _tabController.animateTo(2);
             },
           ),
+          
+          const SizedBox(height: 12),
+          _buildActionButton(
+            icon: Icons.delete_forever,
+            label: 'Delete All Public Messages',
+            onPressed: _deleteAllPublicMessages,
+            color: Colors.red,
+          ),
         ],
       ),
     );
@@ -526,6 +690,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
     required IconData icon,
     required String label,
     required VoidCallback onPressed,
+    Color? color,
   }) {
     return SizedBox(
       width: double.infinity,
@@ -538,6 +703,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
+          backgroundColor: color,
         ),
       ),
     );
@@ -664,6 +830,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
     final username = data['username'] as String? ?? 'Unknown';
     final email = data['email'] as String? ?? 'No email';
     final isAdmin = data['isAdmin'] as bool? ?? false;
+    final isBanned = data['isBanned'] as bool? ?? false;
     final photoURL = data['photoURL'] as String?;
     final lastSeen = data['lastSeen'] as Timestamp?;
     final userId = userDoc.id;
@@ -697,6 +864,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
           const SizedBox(height: 8),
           _buildDetailRow('Admin Status', isAdmin ? 'Admin' : 'Regular User'),
           const SizedBox(height: 8),
+          _buildDetailRow('Ban Status', isBanned ? 'Banned' : 'Not Banned', 
+            textColor: isBanned ? Colors.red : null),
+          const SizedBox(height: 8),
           _buildDetailRow(
             'Last Seen',
             lastSeen != null
@@ -712,6 +882,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
           },
           child: const Text('Close'),
         ),
+        // Ban/Unban button
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            _toggleBanStatus(userId, !isBanned);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isBanned ? Colors.green : Colors.orange,
+          ),
+          child: Text(isBanned ? 'Unban User' : 'Ban User'),
+        ),
+        // Admin toggle button
         ElevatedButton(
           onPressed: () {
             Navigator.of(context).pop();
@@ -722,11 +904,22 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
           ),
           child: Text(isAdmin ? 'Remove Admin' : 'Make Admin'),
         ),
+        // Delete user button
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            _deleteUserAccount(userId);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red[700],
+          ),
+          child: const Text('Delete User'),
+        ),
       ],
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(String label, String value, {Color? textColor}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -740,8 +933,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
-              color: AppTheme.lightTextColor,
+            style: TextStyle(
+              color: textColor ?? AppTheme.lightTextColor,
             ),
           ),
         ),

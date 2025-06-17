@@ -1,5 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+class MessageAttachment {
+  final String fileId;
+  final String fileName;
+  final String mimeType;
+  
+  MessageAttachment({
+    required this.fileId, 
+    required this.fileName, 
+    required this.mimeType
+  });
+}
+
 class Message {
   final String id;
   final String senderId;
@@ -90,4 +102,34 @@ class Message {
   
   // Helper to check if this message has a file attachment
   bool get hasFile => fileId != null && fileName != null;
+  
+  // Helper to get attachments (for compatibility with chat_service.dart)
+  List<MessageAttachment> get attachments {
+    if (fileId != null && fileName != null && mimeType != null) {
+      return [MessageAttachment(fileId: fileId!, fileName: fileName!, mimeType: mimeType!)];
+    }
+    return [];
+  }
+
+  factory Message.fromMap(Map<String, dynamic> data, String id) {
+    return Message(
+      id: id,
+      senderId: data['senderId'] ?? '',
+      senderName: data['senderName'] ?? 'Unknown',
+      senderAvatar: data['senderAvatar'] ?? '',
+      text: data['text'] ?? '',
+      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      isPublic: data['isPublic'] ?? true,
+      receiverId: data['receiverId'],
+      reactions: (data['reactions'] as Map<String, dynamic>?)?.map(
+        (key, value) => MapEntry(key, value.toString()),
+      ) ?? {},
+      replyToMessageId: data['replyToMessageId'],
+      replyToText: data['replyToText'],
+      replyToSenderName: data['replyToSenderName'],
+      fileId: data['fileId'],
+      fileName: data['fileName'],
+      mimeType: data['mimeType'],
+    );
+  }
 } 

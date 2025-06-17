@@ -152,9 +152,19 @@ class ChatService {
     // Add participants array for private messages
     if (!isPublic && receiverId != null) {
       messageData['participants'] = [user.uid, receiverId];
+    } else if (isPublic) {
+      // For public messages, add the sender as a participant
+      messageData['participants'] = [user.uid];
     }
 
-    await _messagesCollection.add(messageData);
+    try {
+      print('Sending message with data: ${messageData.toString()}');
+      await _messagesCollection.add(messageData);
+      print('Message sent successfully');
+    } catch (e) {
+      print('Error sending message: $e');
+      throw e; // Re-throw to allow UI to handle the error
+    }
   }
 
   // Upload file and send message
@@ -493,42 +503,91 @@ class ChatService {
     return contacts;
   }
 
-  // Delete a message (only author can delete their own messages)
-  // This also handles deleting associated files from Appwrite if needed
+  // Delete a message
   Future<void> deleteMessage(String messageId) async {
-    final user = currentUser;
-    if (user == null) return;
-
     try {
-      // First check if the message exists
-      final messageDoc = await _messagesCollection.doc(messageId).get();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('No authenticated user found');
+
+      // Get the message
+      final messageDoc = await _firestore.collection('messages').doc(messageId).get();
+      if (!messageDoc.exists) throw Exception('Message not found');
       
-      if (!messageDoc.exists) {
-        throw Exception('Message not found');
-      }
+      final message = Message.fromMap(messageDoc.data()!, messageDoc.id);
       
-      // Check if the user is the message sender
-      final messageData = messageDoc.data() as Map<String, dynamic>;
-      if (messageData['senderId'] != user.uid) {
+      // Ensure the user is the sender of the message
+      if (message.senderId != user.uid) {
         throw Exception('You can only delete your own messages');
       }
       
-      // If the message has a file, delete it from Appwrite
-      final fileId = messageData['fileId'] as String?;
-      if (fileId != null) {
-        try {
-          await _appwriteService.deleteFile(fileId);
-        } catch (e) {
-          print('Error deleting file from Appwrite: $e');
-          // Continue with message deletion even if file deletion fails
+      // Delete the message
+      await _firestore.collection('messages').doc(messageId).delete();
+      
+      // If message has attachments, delete them
+      if (message.attachments.isNotEmpty) {
+        for (final attachment in message.attachments) {
+          try {
+            final fileId = attachment.fileId;
+            if (fileId != null && fileId.isNotEmpty) {
+              await _appwriteService.deleteFile(fileId);
+            }
+          } catch (e) {
+            print('Error deleting attachment: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('Error deleting message: $e');
+      rethrow;
+    }
+  }
+  
+  // Delete a message as admin
+  Future<void> deleteMessageAsAdmin(String messageId) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('No authenticated user found');
+
+      // Verify user is admin
+      final isAdmin = await isCurrentUserAdmin();
+      if (!isAdmin) {
+        throw Exception('Only admins can perform this action');
+      }
+
+      // Get the message
+      final messageDoc = await _firestore.collection('messages').doc(messageId).get();
+      if (!messageDoc.exists) throw Exception('Message not found');
+      
+      final message = Message.fromMap(messageDoc.data()!, messageDoc.id);
+      
+      // Delete the message
+      await _firestore.collection('messages').doc(messageId).delete();
+      
+      // If message has attachments, delete them
+      if (message.attachments.isNotEmpty) {
+        for (final attachment in message.attachments) {
+          try {
+            final fileId = attachment.fileId;
+            if (fileId != null && fileId.isNotEmpty) {
+              await _appwriteService.deleteFile(fileId);
+            }
+          } catch (e) {
+            print('Error deleting attachment: $e');
+          }
         }
       }
       
-      // Delete the message from Firestore
-      await _messagesCollection.doc(messageId).delete();
+      // Log the admin action
+      await _firestore.collection('admin_logs').add({
+        'action': 'delete_message',
+        'adminId': user.uid,
+        'messageId': messageId,
+        'senderId': message.senderId,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
-      print('Error deleting message: $e');
-      rethrow; // Rethrow to allow UI to handle the error
+      print('Error deleting message as admin: $e');
+      rethrow;
     }
   }
 
@@ -541,6 +600,115 @@ class ChatService {
       print('Admin status updated successfully for user $userId: $isAdmin');
     } catch (e) {
       print('Error setting admin status: $e');
+      rethrow;
+    }
+  }
+
+  // Ban or unban a user
+  Future<void> setBanStatus(String userId, bool isBanned) async {
+    try {
+      // Update user document
+      await _userCollection.doc(userId).update({
+        'isBanned': isBanned,
+      });
+      
+      // Also add/remove from banned_users collection
+      if (isBanned) {
+        // Add to banned users collection
+        await _firestore.collection('banned_users').doc(userId).set({
+          'userId': userId,
+          'bannedAt': FieldValue.serverTimestamp(),
+          'bannedBy': currentUser?.uid,
+        });
+      } else {
+        // Remove from banned users collection
+        await _firestore.collection('banned_users').doc(userId).delete();
+      }
+      
+      print('Ban status updated successfully for user $userId: $isBanned');
+    } catch (e) {
+      print('Error setting ban status: $e');
+      rethrow;
+    }
+  }
+  
+  // Delete a user account
+  Future<void> deleteUserAccount(String userId) async {
+    try {
+      // First, get user data
+      final userDoc = await _userCollection.doc(userId).get();
+      if (!userDoc.exists) {
+        throw Exception('User not found');
+      }
+      
+      // Delete all messages sent by this user
+      final sentMessagesQuery = await _messagesCollection
+          .where('senderId', isEqualTo: userId)
+          .get();
+          
+      for (var doc in sentMessagesQuery.docs) {
+        // Delete associated files if needed
+        final messageData = doc.data() as Map<String, dynamic>;
+        final fileId = messageData['fileId'] as String?;
+        if (fileId != null) {
+          try {
+            await _appwriteService.deleteFile(fileId);
+          } catch (e) {
+            print('Error deleting file for message ${doc.id}: $e');
+            // Continue with message deletion
+          }
+        }
+        
+        // Delete the message
+        await _messagesCollection.doc(doc.id).delete();
+      }
+      
+      // Delete the user document
+      await _userCollection.doc(userId).delete();
+      
+      // Remove from banned_users if they were banned
+      try {
+        await _firestore.collection('banned_users').doc(userId).delete();
+      } catch (e) {
+        // Ignore errors if they weren't in banned_users
+      }
+      
+      print('User account deleted successfully: $userId');
+    } catch (e) {
+      print('Error deleting user account: $e');
+      rethrow;
+    }
+  }
+  
+  // Delete all public messages
+  Future<void> deleteAllPublicMessages() async {
+    try {
+      // Get all public messages
+      final query = await _messagesCollection
+          .where('isPublic', isEqualTo: true)
+          .get();
+      
+      // Delete each message
+      for (var doc in query.docs) {
+        // Delete associated files if needed
+        final messageData = doc.data() as Map<String, dynamic>;
+        final fileId = messageData['fileId'] as String?;
+        if (fileId != null) {
+          try {
+            await _appwriteService.deleteFile(fileId);
+          } catch (e) {
+            print('Error deleting file for message ${doc.id}: $e');
+            // Continue with message deletion
+          }
+        }
+        
+        // Delete the message
+        await _messagesCollection.doc(doc.id).delete();
+      }
+      
+      print('All public messages deleted successfully');
+    } catch (e) {
+      print('Error deleting all public messages: $e');
       rethrow;
     }
   }

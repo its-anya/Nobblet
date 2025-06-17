@@ -70,6 +70,7 @@ dependencies:
   cached_network_image: ^3.3.0
   video_player: ^2.7.0
   chewie: ^1.7.1
+  connectivity_plus: ^6.1.4
 
 dev_dependencies:
   flutter_test:

@@ -9,6 +9,7 @@ class ChatUser {
   final DateTime lastSeen;
   final bool isOnline;
   final bool isAdmin;
+  final bool isBanned;
 
   ChatUser({
     required this.id,
@@ -18,6 +19,7 @@ class ChatUser {
     required this.lastSeen,
     required this.isOnline,
     this.isAdmin = false,
+    this.isBanned = false,
   });
 
   factory ChatUser.fromFirebaseUser(auth.User user) {
@@ -29,6 +31,7 @@ class ChatUser {
       lastSeen: DateTime.now(),
       isOnline: true,
       isAdmin: false,
+      isBanned: false,
     );
   }
 
@@ -42,6 +45,7 @@ class ChatUser {
       lastSeen: (data['lastSeen'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isOnline: data['isOnline'] ?? false,
       isAdmin: data['isAdmin'] ?? false,
+      isBanned: data['isBanned'] ?? false,
     );
   }
 
@@ -53,6 +57,7 @@ class ChatUser {
       'lastSeen': Timestamp.fromDate(lastSeen),
       'isOnline': isOnline,
       'isAdmin': isAdmin,
+      'isBanned': isBanned,
     };
   }
 } 

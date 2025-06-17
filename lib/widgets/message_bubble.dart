@@ -6,6 +6,7 @@ import '../widgets/file_preview_widget.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
+  final bool isAdmin;
   final Function(Message)? onReply;
   final Function(Message, String)? onReaction;
   final Function(Message)? onDelete;
@@ -14,6 +15,7 @@ class MessageBubble extends StatelessWidget {
     Key? key,
     required this.message,
     required this.isMe,
+    this.isAdmin = false,
     this.onReply,
     this.onReaction,
     this.onDelete,
@@ -35,73 +37,78 @@ class MessageBubble extends StatelessWidget {
               
               // Message content
               Flexible(
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.75,
-                  ),
-                  margin: EdgeInsets.only(
-                    left: isMe ? 40 : 8,
-                    right: isMe ? 8 : 40,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: isMe 
-                      ? AppTheme.neonGradient
-                      : LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppTheme.darkSecondaryColor,
-                            AppTheme.primaryColor.withOpacity(0.9),
-                          ],
-                        ),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(16),
-                      topRight: const Radius.circular(16),
-                      bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-                      bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+                child: GestureDetector(
+                  onLongPress: () {
+                    _showMessageOptions(context);
+                  },
+                  child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.75,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: isMe 
-                          ? AppTheme.accentColor.withOpacity(0.2) 
-                          : Colors.black.withOpacity(0.1),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Reply preview if applicable
-                      if (message.replyToMessageId != null)
-                        _buildReplyPreview(context),
-                        
-                      // File attachment if present
-                      if (message.hasFile)
-                        _buildFileAttachment(context),
-                        
-                      // Message text
-                      if (message.text.isNotEmpty || !message.hasFile)
-                        Padding(
-                          padding: EdgeInsets.only(
-                            left: 12,
-                            right: 12,
-                            top: message.replyToMessageId != null ? 8 : 12,
-                            bottom: 8,
+                    margin: EdgeInsets.only(
+                      left: isMe ? 40 : 8,
+                      right: isMe ? 8 : 40,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: isMe 
+                        ? AppTheme.neonGradient
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppTheme.darkSecondaryColor,
+                              AppTheme.primaryColor.withOpacity(0.9),
+                            ],
                           ),
-                          child: Text(
-                            message.text.isEmpty && message.hasFile ? 'Shared a file' : message.text,
-                            style: TextStyle(
-                              color: isMe ? Colors.white : AppTheme.lightTextColor,
-                              fontSize: 15,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(16),
+                        topRight: const Radius.circular(16),
+                        bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
+                        bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isMe 
+                            ? AppTheme.accentColor.withOpacity(0.2) 
+                            : Colors.black.withOpacity(0.1),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Reply preview if applicable
+                        if (message.replyToMessageId != null)
+                          _buildReplyPreview(context),
+                        
+                        // File attachment if present
+                        if (message.hasFile)
+                          _buildFileAttachment(context),
+                        
+                        // Message text
+                        if (message.text.isNotEmpty || !message.hasFile)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              left: 12,
+                              right: 12,
+                              top: message.replyToMessageId != null ? 8 : 12,
+                              bottom: 8,
+                            ),
+                            child: Text(
+                              message.text.isEmpty && message.hasFile ? 'Shared a file' : message.text,
+                              style: TextStyle(
+                                color: isMe ? Colors.white : AppTheme.lightTextColor,
+                                fontSize: 15,
+                              ),
                             ),
                           ),
-                        ),
-                      
-                      // Timestamp and name
-                      _buildMessageFooter(context),
-                    ],
+                        
+                        // Timestamp and name
+                        _buildMessageFooter(context),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -114,6 +121,75 @@ class MessageBubble extends StatelessWidget {
           // Reactions display
           if (message.reactions.isNotEmpty)
             _buildReactions(context),
+        ],
+      ),
+    );
+  }
+  
+  void _showMessageOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Reactions row
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: ['👍', '❤️', '😂', '😮', '😢', '😡'].map((emoji) {
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context);
+                    if (onReaction != null) {
+                      onReaction!(message, emoji);
+                    }
+                  },
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                );
+              }).toList(),
+            ),
+          ),
+          
+          const Divider(height: 1),
+          
+          // Reply action
+          ListTile(
+            leading: const Icon(Icons.reply),
+            title: const Text('Reply'),
+            onTap: () {
+              Navigator.pop(context);
+              if (onReply != null) {
+                onReply!(message);
+              }
+            },
+          ),
+          
+          // Copy action
+          ListTile(
+            leading: const Icon(Icons.copy),
+            title: const Text('Copy'),
+            onTap: () {
+              Navigator.pop(context);
+              // Implement copy functionality
+            },
+          ),
+          
+          // Delete action - show for my messages or if admin
+          if (isMe || isAdmin)
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: Text(
+                isAdmin && !isMe ? 'Delete (As Admin)' : 'Delete', 
+                style: const TextStyle(color: Colors.red)
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                if (onDelete != null) {
+                  onDelete!(message);
+                }
+              },
+            ),
         ],
       ),
     );

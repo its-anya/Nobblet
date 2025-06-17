@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_chat_reactions/flutter_chat_reactions.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'dart:async';
 import '../services/chat_service.dart';
 import '../models/message.dart';
 import '../models/chat_user.dart';
@@ -23,6 +24,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final ChatService _chatService = ChatService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   late TabController _tabController;
@@ -35,6 +37,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _canSendMessage = false;
   bool _showEmojiPicker = false;
   Message? _replyToMessage;
+  int _selectedTab = 0;
 
   // Default reaction emojis
   final List<String> _defaultReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
@@ -46,9 +49,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _tabController.addListener(_handleTabChange);
     _chatService.saveUserData(); // Update user data
     _loadRecentContacts();
+    _checkBannedStatus();
     
     // Listen for text changes to enable/disable send button
     _messageController.addListener(_updateSendButtonState);
+    
+    // We're going to skip connectivity checks for now as they're causing issues
+    // and aren't essential for our current task
   }
 
   void _handleTabChange() {
@@ -104,6 +111,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _searchController.dispose();
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
+    // No need to cancel the subscription since we're not using it
     super.dispose();
   }
 
@@ -870,37 +878,45 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           );
         }
 
-        final currentUserId = _chatService.currentUser?.uid;
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          reverse: true,
-          itemCount: messages.length,
-          itemBuilder: (context, index) {
-            final message = messages[index];
-            final isMe = message.senderId == currentUserId;
+        return FutureBuilder<bool>(
+          future: _chatService.isCurrentUserAdmin(),
+          builder: (context, adminSnapshot) {
+            final isAdmin = adminSnapshot.data ?? false;
+            final currentUserId = _chatService.currentUser?.uid;
             
-            return Dismissible(
-                    key: Key('message_${message.id}_${DateTime.now().millisecondsSinceEpoch}'),
-                    direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
-                    background: _buildSwipeReplyBackground(isMe),
-                    confirmDismiss: (_) async {
-                      _setReplyMessage(message);
-                      return false; // Don't actually dismiss the item
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              reverse: true,
+              itemCount: messages.length,
+              itemBuilder: (context, index) {
+                final message = messages[index];
+                final isMe = message.senderId == currentUserId;
+                
+                return Dismissible(
+                  key: Key('message_${message.id}_${DateTime.now().millisecondsSinceEpoch}'),
+                  direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
+                  background: _buildSwipeReplyBackground(isMe),
+                  confirmDismiss: (_) async {
+                    _setReplyMessage(message);
+                    return false; // Don't actually dismiss the item
+                  },
+                  child: GestureDetector(
+                    onLongPress: () {
+                      _showMessageOptions(message, isAdmin);
                     },
-                    child: GestureDetector(
-                      onLongPress: () {
-                        _showMessageOptions(message);
-                      },
-                child: MessageBubble(
-                  message: message,
-                  isMe: isMe,
-                  onReply: (msg) => _setReplyMessage(msg),
-                  onReaction: (msg, emoji) => _handleReaction(msg, emoji),
-                  onDelete: isMe ? (msg) => _deleteMessage(msg.id) : null,
-                ),
-              ),
+                    child: MessageBubble(
+                      message: message,
+                      isMe: isMe,
+                      isAdmin: isAdmin,
+                      onReply: (msg) => _setReplyMessage(msg),
+                      onReaction: (msg, emoji) => _handleReaction(msg, emoji),
+                      onDelete: (isMe || isAdmin) ? (msg) => _deleteMessage(msg.id, isAdmin) : null,
+                    ),
+                  ),
+                );
+              },
             );
-          },
+          }
         );
       },
     );
@@ -1219,7 +1235,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _showMessageOptions(Message message) {
+  void _showMessageOptions(Message message, bool isAdmin) {
     showModalBottomSheet(
       context: context,
       builder: (context) => Column(
@@ -1289,7 +1305,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteMessage(message.id);
+              _deleteMessage(message.id, false);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('DELETE'),
@@ -1300,35 +1316,83 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
   
   // Delete a message
-  Future<void> _deleteMessage(String messageId) async {
+  Future<void> _deleteMessage(String messageId, bool isAdmin) async {
     try {
       // Show loading dialog
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text("Deleting message..."),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (isAdmin) {
+        await _chatService.deleteMessageAsAdmin(messageId);
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Message deleted as admin'),
+            backgroundColor: AppTheme.successColor,
+          ),
+        );
+      } else {
+        await _chatService.deleteMessage(messageId);
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Message deleted'),
+            backgroundColor: AppTheme.successColor,
+          ),
+        );
+      }
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting message: ${e.toString()}'),
+          backgroundColor: AppTheme.errorColor,
         ),
       );
-      
-      // Delete the message
-      await _chatService.deleteMessage(messageId);
-      
-      // Close loading dialog
-      if (mounted) Navigator.pop(context);
-      
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message deleted')),
-      );
+    }
+  }
+
+  // Check if current user is banned
+  Future<void> _checkBannedStatus() async {
+    try {
+      final currentUser = _chatService.currentUser;
+      if (currentUser != null) {
+        final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+        final userData = userDoc.data();
+        
+        if (userData != null && userData['isBanned'] == true) {
+          // User is banned, show message and log them out
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your account has been banned by an administrator.'),
+              backgroundColor: AppTheme.errorColor,
+              duration: Duration(seconds: 5),
+            ),
+          );
+          
+          // Wait for snackbar to be visible before logging out
+          Future.delayed(const Duration(seconds: 2), () {
+            _chatService.signOut().then((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+          });
+        }
+      }
     } catch (e) {
-      // Close loading dialog
-      if (mounted) Navigator.pop(context);
-      
-      // Show error
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+      print('Error checking banned status: $e');
     }
   }
 } 

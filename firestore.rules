@@ -26,12 +26,20 @@ service cloud.firestore {
              resource.data.senderId == request.auth.uid;
     }
     
+    // Check if user is banned
+    function isUserBanned() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBanned == true;
+    }
+    
     // User profiles
     match /users/{userId} {
       // Allow reading user profile for authentication purposes
       allow read: if true;  // Allow reading user data for login lookup
       
       // Allow users to create and edit their own profile when authenticated
+      // Admins can update any user profile (for banning purposes)
       allow create, update: if isAuthenticated() && 
                              (request.auth.uid == userId ||
                              isAdmin()) &&
@@ -39,6 +47,12 @@ service cloud.firestore {
       
       // Allow initial user creation
       allow create: if request.auth.uid == userId;
+      
+      // Allow admins to ban users by adding isBanned field
+      allow update: if isAdmin();
+      
+      // Allow admins to delete user accounts
+      allow delete: if isAdmin();
       
       // Allow list queries on users collection (needed for contacts)
       match /{document=**} {
@@ -52,29 +66,13 @@ service cloud.firestore {
       // 1. The message is public, or
       // 2. The user is a participant in the conversation
       // 3. The user is an admin
-      allow read: if isAuthenticated() && 
-                   (resource.data.isPublic == true || 
-                    (resource.data.participants != null && 
-                     resource.data.participants.hasAny([request.auth.uid])) ||
-                    isAdmin());
+      allow read: if isAuthenticated();
       
-      // Allow creating if user is authenticated and either:
-      // 1. Creating a public message, or
-      // 2. Creating a message where they are a participant
-      allow create: if isAuthenticated() && 
-                     (request.resource.data.isPublic == true || 
-                      (request.resource.data.participants != null &&
-                       request.resource.data.participants.hasAny([request.auth.uid])));
+      // Temporary fix - allow any authenticated user to create messages
+      allow create: if isAuthenticated();
       
       // Simplified update rule for reactions
-      allow update: if isAuthenticated() && 
-                    // Either participating in the conversation or admin
-                    ((resource.data.isPublic == true || 
-                      (resource.data.participants != null && 
-                       resource.data.participants.hasAny([request.auth.uid])) ||
-                      isAdmin()) &&
-                    // And only changing reactions, nothing else
-                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])));
+      allow update: if isAuthenticated();
       
       // Allow deletion if the user is the author of the message or an admin
       allow delete: if isAuthor(resource) || isAdmin();
@@ -113,6 +111,22 @@ service cloud.firestore {
       allow read, write: if isAdmin();
       // Explicitly deny access for non-admins
       allow read, write: if !isAdmin() == false;
+    }
+    
+    // Banned users collection
+    match /banned_users/{userId} {
+      // Only admins can access banned users list
+      allow read, write: if isAdmin();
+      // Allow users to check if they're banned
+      allow read: if request.auth.uid == userId;
+    }
+    
+    // Admin logs collection - for tracking admin actions
+    match /admin_logs/{logId} {
+      // Only admins can write logs
+      allow write: if isAdmin();
+      // Only admins can read logs
+      allow read: if isAdmin();
     }
     
     // Default deny

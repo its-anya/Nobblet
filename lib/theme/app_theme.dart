@@ -21,7 +21,10 @@ class AppTheme {
   
   // Status colors
   static const Color onlineColor = Color(0xFF00E676);       // Neon green
-  static const Color errorColor = Color(0xFFFF5252);        // Bright red
+  static const Color errorColor = Color(0xFFFF3B30);        // Bright red
+  
+  // Success color
+  static const Color successColor = Color(0xFF34C759);
 
   // Additional colors needed for message bubbles
   static const Color darkSecondaryColor = Color(0xFF1C2541); // Dark secondary color
