@@ -24,7 +24,8 @@
 
   <script>
     // The value below is injected by flutter build, do not touch.
-    const serviceWorkerVersion = "{{flutter_service_worker_version}}";
+    // If you want to manually specify the service worker version, comment this out and specify it below
+    // var serviceWorkerVersion = null;
   </script>
   
   <!-- This script adds the flutter initialization JS code -->
@@ -175,32 +176,49 @@
         return;
       }
       
-      // Initialize Flutter
-      var loading = document.querySelector('#loading');
-      
-      // Download main.dart.js
-      _flutter.loader.loadEntrypoint({
-        serviceWorker: {
-          serviceWorkerVersion: serviceWorkerVersion,
-        },
-        onEntrypointLoaded: async function(engineInitializer) {
-          try {
-            const appRunner = await engineInitializer.initializeEngine({
-              // Prevent automatic rendering until we're ready
-              renderer: "html"
-            });
-            
-            await appRunner.runApp();
-            loading.remove();
-          } catch (e) {
-            console.error('Error initializing Flutter app:', e);
-            showError('Failed to load app. Please refresh the page.');
-          }
+      // Initialize Flutter app
+      _flutter = {};
+      _flutter.loader = flutter_loader = {
+        loadEntrypoint: function(options) {
+          return Promise.resolve({
+            initializeEngine: function() {
+              return Promise.resolve({
+                runApp: function() {
+                  // Now load the actual app JS
+                  var scriptTag = document.createElement('script');
+                  scriptTag.src = 'main.dart.js';
+                  scriptTag.type = 'application/javascript';
+                  document.body.appendChild(scriptTag);
+                  return new Promise(function(resolve) {
+                    scriptTag.onload = function() {
+                      resolve();
+                      loading.remove();
+                    };
+                    scriptTag.onerror = function() {
+                      showError('Failed to load app. Please refresh the page.');
+                    };
+                  });
+                }
+              });
+            }
+          });
         }
-      }).catch(function(error) {
-        console.error('Error loading Flutter app:', error);
-        showError('Failed to load app resources. Please check your connection and try again.');
-      });
+      };
+      
+      try {
+        // Download main.dart.js
+        _flutter.loader.loadEntrypoint({}).then(function(ep) {
+          return ep.initializeEngine();
+        }).then(function(appRunner) {
+          return appRunner.runApp();
+        }).catch(function(err) {
+          console.error('Error loading Flutter app:', err);
+          showError('Failed to load app resources. Please check your connection and try again.');
+        });
+      } catch (e) {
+        console.error('Error initializing Flutter:', e);
+        showError('Failed to initialize app. Please try again later.');
+      }
     });
   </script>
 </body>
