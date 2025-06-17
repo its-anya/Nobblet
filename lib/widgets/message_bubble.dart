@@ -24,7 +24,7 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       child: Column(
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
@@ -34,6 +34,7 @@ class MessageBubble extends StatelessWidget {
             children: [
               // Avatar for other users' messages
               if (!isMe) _buildAvatar(),
+              const SizedBox(width: 4),
               
               // Message content
               Flexible(
@@ -44,10 +45,6 @@ class MessageBubble extends StatelessWidget {
                   child: Container(
                     constraints: BoxConstraints(
                       maxWidth: MediaQuery.of(context).size.width * 0.75,
-                    ),
-                    margin: EdgeInsets.only(
-                      left: isMe ? 40 : 8,
-                      right: isMe ? 8 : 40,
                     ),
                     decoration: BoxDecoration(
                       gradient: isMe 
@@ -113,6 +110,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
               
+              const SizedBox(width: 4),
               // Avatar for my messages
               if (isMe) _buildAvatar(),
             ],
@@ -232,25 +230,41 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: isMe 
-          ? AppTheme.accentColor.withOpacity(0.3) 
-          : AppTheme.darkPrimaryColor.withOpacity(0.3),
+          ? Colors.white.withOpacity(0.15)
+          : Colors.black.withOpacity(0.15),
         borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(
+            color: isMe ? Colors.white.withOpacity(0.5) : AppTheme.accentColor.withOpacity(0.7),
+            width: 2,
+          ),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            message.replyToSenderName ?? 'User',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: isMe ? Colors.white.withOpacity(0.9) : AppTheme.accentColor,
-            ),
+          Row(
+            children: [
+              const Icon(
+                Icons.reply,
+                size: 12,
+                color: AppTheme.accentColor,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                "Reply to ${message.replyToSenderName ?? 'User'}",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  color: isMe ? Colors.white.withOpacity(0.9) : AppTheme.accentColor,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             message.replyToText ?? '',
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12,

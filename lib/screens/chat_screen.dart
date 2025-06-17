@@ -420,13 +420,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             ),
           ),
           
-          // Reply preview (if replying and should show input)
-          if (_replyToMessage != null && showInput)
-            _buildReplyPreview(),
-          
-          // Message input (only if in public tab or user is selected)
-          if (showInput)
-            _buildMessageInput(),
+          // Message input with reply preview (only if in public tab or user is selected)
+          if (showInput) 
+            Column(
+              children: [
+                // Reply preview
+                if (_replyToMessage != null)
+                  _buildReplyPreview(),
+                
+                // Message input
+                _buildMessageInput(),
+              ],
+            ),
           
           // Emoji picker (only if in public tab or user is selected)
           if (_showEmojiPicker && showInput)
@@ -1027,11 +1032,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   Widget _buildReplyPreview() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+      margin: const EdgeInsets.only(bottom: 0, left: 8, right: 8, top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.primaryColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(12),
+          topRight: Radius.circular(12),
+          bottomLeft: Radius.circular(0),
+          bottomRight: Radius.circular(0),
+        ),
         border: Border.all(
           color: AppTheme.accentColor.withOpacity(0.3),
           width: 1,
@@ -1039,6 +1049,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       ),
       child: Row(
         children: [
+          const Icon(Icons.reply, size: 16, color: AppTheme.accentColor),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1071,11 +1083,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             splashRadius: 16,
             constraints: const BoxConstraints(maxHeight: 24, maxWidth: 24),
             padding: EdgeInsets.zero,
-            onPressed: () {
-              setState(() {
-                _replyToMessage = null;
-              });
-            },
+            onPressed: _cancelReply,
           ),
         ],
       ),
@@ -1102,14 +1110,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          if (_replyToMessage != null)
-            _buildReplyPreview(),
-          Row(
-            children: [
-              // Emoji button
+          // Emoji button
           IconButton(
             icon: Icon(
               _showEmojiPicker ? Icons.keyboard : Icons.emoji_emotions_outlined,
@@ -1123,17 +1126,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             },
           ),
               
-              // Attachment button
-              IconButton(
-                icon: const Icon(
-                  Icons.attach_file_rounded,
-                  color: AppTheme.accentColor,
-                ),
-                splashRadius: 20,
-                onPressed: _shareFile,
-              ),
-              
-              // Text input field
+          // Attachment button
+          IconButton(
+            icon: const Icon(
+              Icons.attach_file_rounded,
+              color: AppTheme.accentColor,
+            ),
+            splashRadius: 20,
+            onPressed: _shareFile,
+          ),
+          
+          // Text input field
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -1189,7 +1192,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
           const SizedBox(width: 8),
               
-              // Send button
+          // Send button
           Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -1227,8 +1230,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
-              ),
-            ],
           ),
         ],
       ),
