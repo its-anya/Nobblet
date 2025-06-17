@@ -29,12 +29,12 @@ class MessageBubble extends StatelessWidget {
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Avatar for other users' messages
               if (!isMe) _buildAvatar(),
-              const SizedBox(width: 4),
+              if (!isMe) const SizedBox(width: 4),
               
               // Message content
               Flexible(
@@ -110,7 +110,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
               
-              const SizedBox(width: 4),
+              if (isMe) const SizedBox(width: 4),
               // Avatar for my messages
               if (isMe) _buildAvatar(),
             ],
@@ -251,12 +251,15 @@ class MessageBubble extends StatelessWidget {
                 color: AppTheme.accentColor,
               ),
               const SizedBox(width: 4),
-              Text(
-                "Reply to ${message.replyToSenderName ?? 'User'}",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  color: isMe ? Colors.white.withOpacity(0.9) : AppTheme.accentColor,
+              Flexible(
+                child: Text(
+                  "Reply to ${message.replyToSenderName ?? 'User'}",
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: isMe ? Colors.white.withOpacity(0.9) : AppTheme.accentColor,
+                  ),
                 ),
               ),
             ],
