@@ -9,6 +9,10 @@ import '../models/chat_user.dart';
 import '../theme/app_theme.dart';
 import 'profile_screen.dart';
 import 'user_search_screen.dart';
+import 'admin_panel_screen.dart';
+import '../widgets/message_bubble.dart';
+import '../services/appwrite_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -163,10 +167,51 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       // Clear reply state after sending
       setState(() {
         _replyToMessage = null;
+        _canSendMessage = false;
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error sending message: $e')),
+      );
+    }
+  }
+
+  // Share a file
+  Future<void> _shareFile() async {
+    final text = _messageController.text.trim();
+
+    try {
+      if (_tabController.index == 0) {
+        // Share file in public chat
+        await _chatService.uploadFileAndSendMessage(
+          context: context,
+          text: text,
+          isPublic: true,
+          replyToMessageId: _replyToMessage?.id,
+          replyToText: _replyToMessage?.text,
+          replyToSenderName: _replyToMessage?.senderName,
+        );
+      } else if (_selectedUser != null) {
+        // Share file in private chat
+        await _chatService.uploadFileAndSendMessage(
+          context: context,
+          text: text,
+          isPublic: false,
+          receiverId: _selectedUser!.id,
+          replyToMessageId: _replyToMessage?.id,
+          replyToText: _replyToMessage?.text,
+          replyToSenderName: _replyToMessage?.senderName,
+        );
+      }
+      _messageController.clear();
+      // Clear reply state after sending
+      setState(() {
+        _replyToMessage = null;
+        _canSendMessage = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sharing file: $e')),
       );
     }
   }
@@ -332,9 +377,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   Icon(Icons.forum, size: 18, color: _tabController.index == 0 ? AppTheme.accentColor : null),
                   const SizedBox(width: 8),
                   const Text('PUBLIC'),
-          ],
-        ),
-      ),
+                ],
+              ),
+            ),
             Tab(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -515,6 +560,45 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 }
               },
             ),
+            // Admin panel option - only show to admins
+            FutureBuilder<bool>(
+              future: _chatService.isCurrentUserAdmin(),
+              builder: (context, snapshot) {
+                // Show loading indicator while checking
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                
+                // Only show admin panel if user is admin
+                if (snapshot.hasData && snapshot.data == true) {
+                  return _buildDrawerItem(
+                    icon: Icons.admin_panel_settings,
+                    title: 'Admin Panel',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const AdminPanelScreen()),
+                      );
+                    },
+                  );
+                } else {
+                  // Return an empty container if not admin
+                  return const SizedBox.shrink();
+                }
+              },
+            ),
             const Divider(
               color: Color(0xFF303451),
               thickness: 1,
@@ -532,10 +616,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 }
               },
               isDestructive: true,
-                      ),
-              ],
             ),
-          ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -795,13 +879,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             final message = messages[index];
             final isMe = message.senderId == currentUserId;
             
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12.0),
-              child: Column(
-                crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  // Wrap message in dismissible for swipe to reply
-                  Dismissible(
+            return Dismissible(
                     key: Key('message_${message.id}_${DateTime.now().millisecondsSinceEpoch}'),
                     direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
                     background: _buildSwipeReplyBackground(isMe),
@@ -813,189 +891,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       onLongPress: () {
                         _showMessageOptions(message);
                       },
-                      child: Row(
-                        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          if (!isMe && isPublic)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8.0),
-                              child: CircleAvatar(
-                                radius: 18,
-                                backgroundImage: message.senderAvatar.isNotEmpty
-                                    ? NetworkImage(message.senderAvatar)
-                                    : null,
-                                backgroundColor: AppTheme.primaryColor,
-                                child: message.senderAvatar.isEmpty
-                                    ? Container(
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          gradient: AppTheme.metalGradient,
-                                        ),
-                                        alignment: Alignment.center,
-                                        child: Text(
-                                          message.senderName.isNotEmpty
-                                              ? message.senderName[0].toUpperCase()
-                                              : '?',
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppTheme.lightTextColor,
-                                          ),
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                            ),
-                          Flexible(
-                            child: Hero(
-                              tag: message.id,
-              child: Container(
-                                constraints: BoxConstraints(
-                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                                  gradient: isMe 
-                                    ? const LinearGradient(
-                                        colors: [Color(0xFF1E2746), Color(0xFF2E3566)],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      )
-                                    : const LinearGradient(
-                                        colors: [Color(0xFF303450), Color(0xFF404461)],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: const Radius.circular(20),
-                                    topRight: const Radius.circular(20),
-                                    bottomLeft: Radius.circular(isMe ? 20 : 4),
-                                    bottomRight: Radius.circular(isMe ? 4 : 20),
-                                  ),
-                                  border: Border.all(
-                                    color: isMe 
-                                      ? AppTheme.accentColor.withOpacity(0.3)
-                                      : Colors.transparent,
-                                    width: 1,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: isMe 
-                                        ? AppTheme.accentColor.withOpacity(0.1)
-                                        : Colors.black.withOpacity(0.1),
-                                      spreadRadius: 0,
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (!isMe && isPublic)
-                                      Padding(
-                                        padding: const EdgeInsets.only(bottom: 6.0),
-                                        child: Text(
-                                          message.senderName,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                            color: AppTheme.accentColor,
-                                            letterSpacing: 0.3,
-                                          ),
-                                        ),
-                                      ),
-                                    
-                                    // Reply preview
-                                    if (message.replyToMessageId != null)
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        margin: const EdgeInsets.only(bottom: 8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(
-                                            color: AppTheme.accentColor.withOpacity(0.2),
-                                            width: 1,
-                                          ),
+                child: MessageBubble(
+                  message: message,
+                  isMe: isMe,
+                  onReply: (msg) => _setReplyMessage(msg),
+                  onReaction: (msg, emoji) => _handleReaction(msg, emoji),
+                  onDelete: isMe ? (msg) => _deleteMessage(msg.id) : null,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                      Text(
-                                              message.replyToSenderName ?? 'Someone',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                                                color: AppTheme.accentColor,
-                        ),
-                      ),
-                    Text(
-                                              message.replyToText ?? '',
-                      style: TextStyle(
-                                                fontSize: 12,
-                                                color: AppTheme.primaryTextColor.withOpacity(0.7),
-                      ),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-                                      ),
-                                    
-                                    Text(
-                                      message.text,
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        color: AppTheme.primaryTextColor,
-                                        height: 1.3,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          DateFormat('HH:mm').format(message.timestamp),
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: AppTheme.secondaryTextColor.withOpacity(0.7),
-                                          ),
-                                        ),
-                                        if (isMe)
-                                          Padding(
-                                            padding: const EdgeInsets.only(left: 4),
-                                            child: Icon(
-                                              Icons.done_all,
-                                              size: 14,
-                                              color: AppTheme.accentColor,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  // Reactions
-                  if (message.reactions.isNotEmpty)
-                    Padding(
-                      padding: EdgeInsets.only(
-                        left: isMe ? 0 : 40,
-                        right: isMe ? 10 : 0,
-                        top: 4,
-                      ),
-                      child: _buildReactionsDisplay(message),
-                    ),
-                ],
               ),
             );
           },
@@ -1109,55 +1011,55 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   Widget _buildReplyPreview() {
     return Container(
-      padding: const EdgeInsets.all(12),
-      color: AppTheme.primaryColor,
+      margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+        color: AppTheme.primaryColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppTheme.accentColor.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppTheme.accentColor.withOpacity(0.1),
-                  AppTheme.accentColor.withOpacity(0.2),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.reply, size: 18, color: AppTheme.accentColor),
-          ),
-          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Reply to ${_replyToMessage?.senderName}',
+                  'Reply to ${_replyToMessage!.senderName}',
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
                     color: AppTheme.accentColor,
-                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  _replyToMessage?.text ?? '',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  _replyToMessage!.text,
                   style: TextStyle(
                     color: AppTheme.secondaryTextColor,
-                    fontSize: 13,
+                    fontSize: 12,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, size: 18, color: AppTheme.secondaryTextColor),
-            onPressed: _cancelReply,
-            splashRadius: 20,
+            icon: const Icon(Icons.close, size: 16),
+            color: AppTheme.secondaryTextColor,
+            splashRadius: 16,
+            constraints: const BoxConstraints(maxHeight: 24, maxWidth: 24),
+            padding: EdgeInsets.zero,
+            onPressed: () {
+              setState(() {
+                _replyToMessage = null;
+              });
+            },
           ),
         ],
       ),
@@ -1184,8 +1086,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          if (_replyToMessage != null)
+            _buildReplyPreview(),
+          Row(
+            children: [
+              // Emoji button
           IconButton(
             icon: Icon(
               _showEmojiPicker ? Icons.keyboard : Icons.emoji_emotions_outlined,
@@ -1198,6 +1106,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               });
             },
           ),
+              
+              // Attachment button
+              IconButton(
+                icon: const Icon(
+                  Icons.attach_file_rounded,
+                  color: AppTheme.accentColor,
+                ),
+                splashRadius: 20,
+                onPressed: _shareFile,
+              ),
+              
+              // Text input field
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -1252,6 +1172,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(width: 8),
+              
+              // Send button
           Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -1289,6 +1211,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1365,7 +1289,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteMessage(message);
+              _deleteMessage(message.id);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('DELETE'),
@@ -1376,7 +1300,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
   
   // Delete a message
-  Future<void> _deleteMessage(Message message) async {
+  Future<void> _deleteMessage(String messageId) async {
     try {
       // Show loading dialog
       showDialog(
@@ -1388,7 +1312,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       );
       
       // Delete the message
-      await _chatService.deleteMessage(message.id);
+      await _chatService.deleteMessage(messageId);
       
       // Close loading dialog
       if (mounted) Navigator.pop(context);

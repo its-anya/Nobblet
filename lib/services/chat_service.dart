@@ -1,12 +1,15 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:async/async.dart';
+import 'package:flutter/material.dart';
 import '../models/message.dart';
 import '../models/chat_user.dart';
+import 'appwrite_service.dart';
 
 class ChatService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AppwriteService _appwriteService = AppwriteService(); 
 
   // Get current user
   User? get currentUser => _auth.currentUser;
@@ -19,17 +22,46 @@ class ChatService {
 
   // Save user to Firestore
   Future<void> saveUserData() async {
-    final user = currentUser;
-    if (user != null) {
-      final username = user.displayName ?? 'User';
-      await _userCollection.doc(user.uid).set({
-        'username': username,
-        'usernameLowerCase': username.toLowerCase(),
-        'email': user.email,
-        'photoURL': user.photoURL,
-        'lastSeen': FieldValue.serverTimestamp(),
-        'isOnline': true,
-      }, SetOptions(merge: true));
+    try {
+      print('Attempting to save user data to Firestore...');
+      final user = currentUser;
+      if (user != null) {
+        // Wait for a moment to ensure auth state is properly propagated
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        print('Current user ID: ${user.uid}');
+        print('Display Name: ${user.displayName}');
+        print('Email: ${user.email}');
+        
+        // First check if user already exists to preserve admin status
+        final existingDoc = await _userCollection.doc(user.uid).get();
+        final bool isAdmin = existingDoc.exists ? 
+            (existingDoc.data() as Map<String, dynamic>)['isAdmin'] ?? false : false;
+        
+        print('Preserving admin status: $isAdmin');
+        
+        final username = user.displayName ?? 'User';
+        await _userCollection.doc(user.uid).set({
+          'username': username,
+          'usernameLowerCase': username.toLowerCase(),
+          'email': user.email,
+          'photoURL': user.photoURL,
+          'lastSeen': FieldValue.serverTimestamp(),
+          'isOnline': true,
+          'userId': user.uid, // Add user ID for easier querying
+          'isAdmin': isAdmin, // Preserve admin status
+        }, SetOptions(merge: true));
+        
+        print('User data saved successfully');
+      } else {
+        print('No current user found when trying to save data');
+        throw Exception('No authenticated user found');
+      }
+    } catch (e, stackTrace) {
+      print('Error saving user data:');
+      print('Error: $e');
+      print('Stack trace: $stackTrace');
+      rethrow;
     }
   }
 
@@ -82,7 +114,7 @@ class ChatService {
     }
   }
 
-  // Send message
+  // Send message with optional file attachment
   Future<void> sendMessage({
     required String text,
     required bool isPublic,
@@ -90,6 +122,9 @@ class ChatService {
     String? replyToMessageId,
     String? replyToText,
     String? replyToSenderName,
+    String? fileId,
+    String? fileName,
+    String? mimeType,
   }) async {
     final user = currentUser;
     if (user == null) return;
@@ -106,6 +141,9 @@ class ChatService {
       replyToMessageId: replyToMessageId,
       replyToText: replyToText,
       replyToSenderName: replyToSenderName,
+      fileId: fileId,
+      fileName: fileName,
+      mimeType: mimeType,
     );
 
     // Convert the message to JSON and add participants array if needed
@@ -117,6 +155,68 @@ class ChatService {
     }
 
     await _messagesCollection.add(messageData);
+  }
+
+  // Upload file and send message
+  Future<void> uploadFileAndSendMessage({
+    required BuildContext context,
+    required String text,
+    required bool isPublic,
+    String? receiverId,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSenderName,
+    List<String>? allowedExtensions,
+  }) async {
+    try {
+      // Show uploading indicator
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uploading file...')),
+      );
+      
+      // Upload file to Appwrite
+      final fileInfo = await _appwriteService.uploadFile(
+        context: context,
+        allowedExtensions: allowedExtensions,
+      );
+      
+      if (fileInfo == null) {
+        // User cancelled or upload failed
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        return;
+      }
+      
+      // Send message with file attachment
+      await sendMessage(
+        text: text.isEmpty ? 'Shared a file' : text,
+        isPublic: isPublic,
+        receiverId: receiverId,
+        replyToMessageId: replyToMessageId,
+        replyToText: replyToText,
+        replyToSenderName: replyToSenderName,
+        fileId: fileInfo['fileId'],
+        fileName: fileInfo['fileName'],
+        mimeType: fileInfo['mimeType'],
+      );
+      
+      // Success message
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('File uploaded and shared successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      // Error handling
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error sharing file: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   // Add or update reaction to a message
@@ -179,6 +279,39 @@ class ChatService {
     } catch (e) {
       print('Error fetching message: $e');
       return null;
+    }
+  }
+
+  // Check if current user is admin
+  Future<bool> isCurrentUserAdmin() async {
+    try {
+      final user = currentUser;
+      if (user == null) {
+        print('isCurrentUserAdmin: No current user found');
+        return false;
+      }
+      
+      print('isCurrentUserAdmin: Checking admin status for user ID: ${user.uid}');
+      final docSnapshot = await _userCollection.doc(user.uid).get();
+      if (!docSnapshot.exists) {
+        print('isCurrentUserAdmin: User document does not exist');
+        return false;
+      }
+      
+      final userData = docSnapshot.data() as Map<String, dynamic>;
+      print('isCurrentUserAdmin: User data: $userData');
+      final isAdmin = userData['isAdmin'] == true;
+      print('isCurrentUserAdmin: Admin status: $isAdmin');
+      
+      // Update the user document if isAdmin is missing
+      if (!userData.containsKey('isAdmin')) {
+        await _userCollection.doc(user.uid).update({'isAdmin': false});
+      }
+      
+      return isAdmin;
+    } catch (e) {
+      print('Error checking admin status: $e');
+      return false;
     }
   }
 
@@ -287,6 +420,27 @@ class ChatService {
     await _auth.signOut();
   }
 
+  // Report a message for inappropriate content
+  Future<void> reportMessage(String messageId, String reason) async {
+    final user = currentUser;
+    if (user == null) return;
+
+    try {
+      // Update the message to mark it as reported
+      await _messagesCollection.doc(messageId).update({
+        'isReported': true,
+        'reports.${user.uid}': {
+          'reason': reason,
+          'reportedAt': FieldValue.serverTimestamp(),
+          'reporterName': user.displayName ?? 'User',
+        }
+      });
+    } catch (e) {
+      print('Error reporting message: $e');
+      rethrow;
+    }
+  }
+
   // Get recent chat contacts (users with whom the current user has exchanged messages)
   Future<List<ChatUser>> getRecentContacts() async {
     final user = currentUser;
@@ -340,6 +494,7 @@ class ChatService {
   }
 
   // Delete a message (only author can delete their own messages)
+  // This also handles deleting associated files from Appwrite if needed
   Future<void> deleteMessage(String messageId) async {
     final user = currentUser;
     if (user == null) return;
@@ -358,11 +513,35 @@ class ChatService {
         throw Exception('You can only delete your own messages');
       }
       
-      // Delete the message
+      // If the message has a file, delete it from Appwrite
+      final fileId = messageData['fileId'] as String?;
+      if (fileId != null) {
+        try {
+          await _appwriteService.deleteFile(fileId);
+        } catch (e) {
+          print('Error deleting file from Appwrite: $e');
+          // Continue with message deletion even if file deletion fails
+        }
+      }
+      
+      // Delete the message from Firestore
       await _messagesCollection.doc(messageId).delete();
     } catch (e) {
       print('Error deleting message: $e');
       rethrow; // Rethrow to allow UI to handle the error
+    }
+  }
+
+  // Manually set admin status for a user
+  Future<void> setAdminStatus(String userId, bool isAdmin) async {
+    try {
+      await _userCollection.doc(userId).update({
+        'isAdmin': isAdmin,
+      });
+      print('Admin status updated successfully for user $userId: $isAdmin');
+    } catch (e) {
+      print('Error setting admin status: $e');
+      rethrow;
     }
   }
 } 

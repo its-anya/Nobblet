@@ -23,6 +23,11 @@ class AppTheme {
   static const Color onlineColor = Color(0xFF00E676);       // Neon green
   static const Color errorColor = Color(0xFFFF5252);        // Bright red
 
+  // Additional colors needed for message bubbles
+  static const Color darkSecondaryColor = Color(0xFF1C2541); // Dark secondary color
+  static const Color secondaryColor = Color(0xFF3A506B);     // Secondary color
+  static const Color darkPrimaryColor = Color(0xFF0B132B);   // Dark primary color
+
   // Text styles
   static const TextStyle headingTextStyle = TextStyle(
     fontSize: 20,

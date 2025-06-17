@@ -13,6 +13,10 @@ class Message {
   final String? replyToMessageId;      // ID of message being replied to
   final String? replyToText;           // Preview text of replied message
   final String? replyToSenderName;     // Name of sender of replied message
+  // New fields for file attachments
+  final String? fileId;                // Appwrite file ID
+  final String? fileName;              // Original file name
+  final String? mimeType;              // File MIME type
 
   Message({
     required this.id,
@@ -27,6 +31,9 @@ class Message {
     this.replyToMessageId,
     this.replyToText,
     this.replyToSenderName,
+    this.fileId,
+    this.fileName,
+    this.mimeType,
   });
 
   factory Message.fromFirestore(DocumentSnapshot doc) {
@@ -54,6 +61,10 @@ class Message {
       replyToMessageId: data['replyToMessageId'],
       replyToText: data['replyToText'],
       replyToSenderName: data['replyToSenderName'],
+      // Parse file attachment data
+      fileId: data['fileId'],
+      fileName: data['fileName'],
+      mimeType: data['mimeType'],
     );
   }
 
@@ -70,6 +81,13 @@ class Message {
       'replyToMessageId': replyToMessageId,
       'replyToText': replyToText,
       'replyToSenderName': replyToSenderName,
+      // Include file attachment data if present
+      'fileId': fileId,
+      'fileName': fileName, 
+      'mimeType': mimeType,
     };
   }
+  
+  // Helper to check if this message has a file attachment
+  bool get hasFile => fileId != null && fileName != null;
 } 

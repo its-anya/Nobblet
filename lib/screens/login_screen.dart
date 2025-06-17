@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../services/chat_service.dart';
 import '../theme/app_theme.dart';
 import 'signup_screen.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,8 +22,17 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  late final GoogleSignIn _googleSignIn;
   final ChatService _chatService = ChatService();
+  
+  @override
+  void initState() {
+    super.initState();
+    // Initialize Google Sign In with web client ID if on web platform
+    _googleSignIn = GoogleSignIn(
+      clientId: kIsWeb ? '298332806326-k5d0hm23f3vkhjb3v2f0l7qmr1lkfkvm.apps.googleusercontent.com' : null,
+    );
+  }
   
   // Helper function to check if input is an email
   bool _isEmail(String input) {

@@ -7,6 +7,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:io' show Platform;
 
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
@@ -14,6 +15,7 @@ import 'screens/chat_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/user_search_screen.dart';
 import 'screens/username_setup_screen.dart';
+import 'screens/admin_panel_screen.dart';
 import 'services/chat_service.dart';
 import 'theme/app_theme.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -22,40 +24,83 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   try {
-  // Initialize Firebase with web configuration if running on web
-  if (kIsWeb) {
-    await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: "AIzaSyDCNmM16TvUZxHLzPrSNEs_uB9YVZT7xFg",
-        authDomain: "nobblet.firebaseapp.com",
-        projectId: "nobblet",
-        storageBucket: "nobblet.firebasestorage.app",
-        messagingSenderId: "298332806326",
-        appId: "1:298332806326:web:74d7bfe8d9cd009116da17",
-        measurementId: "G-WPC3TENB34",
-      ),
-    );
+    // Initialize Firebase with web configuration if running on web
+    if (kIsWeb) {
+      print('Initializing Firebase for Web...');
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: "AIzaSyDCNmM16TvUZxHLzPrSNEs_uB9YVZT7xFg",
+          authDomain: "nobblet.firebaseapp.com",
+          projectId: "nobblet",
+          storageBucket: "nobblet.firebasestorage.app",
+          messagingSenderId: "298332806326",
+          appId: "1:298332806326:web:74d7bfe8d9cd009116da17",
+          measurementId: "G-WPC3TENB34",
+        ),
+      );
+      print('Firebase Web initialization complete');
+      
+      // Initialize Firestore settings for web
+      print('Configuring Firestore settings...');
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
+      print('Firestore settings configured');
       
       // Request notification permissions for web
-      if (await FirebaseMessaging.instance.isSupported()) {
-        FirebaseMessaging messaging = FirebaseMessaging.instance;
-        NotificationSettings settings = await messaging.requestPermission(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        
-        if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-          print('User granted permission for notifications');
+      try {
+        print('Checking notification support...');
+        // Check if FirebaseMessaging is supported in this browser
+        if (await FirebaseMessaging.instance.isSupported()) {
+          FirebaseMessaging messaging = FirebaseMessaging.instance;
+          print('Requesting notification permissions...');
+          NotificationSettings settings = await messaging.requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+          
+          print('Notification permission status: ${settings.authorizationStatus}');
         }
+      } catch (e) {
+        print('Error with notifications: $e');
+        // Continue app initialization even if notification permission fails
       }
-  } else {
-    await Firebase.initializeApp();
-  }
+    } else {
+      print('Initializing Firebase for Mobile...');
+      await Firebase.initializeApp();
+      print('Firebase Mobile initialization complete');
+      
+      // Initialize Firebase Messaging for mobile with safety checks
+      try {
+        // Only request permissions on iOS (Android doesn't need upfront permission)
+        if (Platform.isIOS) {
+          print('Requesting iOS notification permissions...');
+          FirebaseMessaging messaging = FirebaseMessaging.instance;
+          await messaging.requestPermission(
+            alert: true,
+            announcement: false,
+            badge: true,
+            carPlay: false,
+            criticalAlert: false,
+            provisional: false,
+            sound: true,
+          );
+          print('iOS notification permissions configured');
+        }
+      } catch (e) {
+        print('Error initializing Firebase Messaging on mobile: $e');
+        // Continue app initialization even if messaging fails
+      }
+    }
   
-  runApp(const MyApp());
-  } catch (e) {
-    print('Error during initialization: $e');
+    print('Starting app...');
+    runApp(const MyApp());
+  } catch (e, stackTrace) {
+    print('Critical error during initialization:');
+    print('Error: $e');
+    print('Stack trace: $stackTrace');
     // Show a fallback error UI
     runApp(
       MaterialApp(
@@ -138,6 +183,7 @@ class _MyAppState extends State<MyApp> {
         '/chat': (context) => const ChatScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/search': (context) => const UserSearchScreen(),
+        '/admin': (context) => const AdminPanelScreen(),
       },
     );
   }
@@ -185,6 +231,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final ChatService _chatService = ChatService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
   // Helper function to check if input is an email
   bool _isEmail(String input) {
@@ -298,33 +345,55 @@ class _AuthScreenState extends State<AuthScreen> {
     });
     
     try {
+      print('Starting authentication process...');
       if (_isLogin) {
         // Login with email or username
         final isEmail = _isEmail(_usernameOrEmail);
+        print('Login attempt with: ${isEmail ? 'email' : 'username'}');
         
         if (isEmail) {
           // Login with email
-        await _auth.signInWithEmailAndPassword(
-            email: _usernameOrEmail,
-          password: _password,
-        );
-      } else {
-          // Login with username - get user email from Firestore first
-          final users = await FirebaseFirestore.instance
-              .collection('users')
-              .where('usernameLowerCase', isEqualTo: _usernameOrEmail.toLowerCase())
-              .get();
-          
-          if (users.docs.isEmpty) {
-            throw Exception('No account found with this username');
-          }
-          
-          final userEmail = users.docs.first['email'] as String;
-          
+          print('Attempting email login...');
           await _auth.signInWithEmailAndPassword(
-            email: userEmail,
+            email: _usernameOrEmail,
             password: _password,
           );
+          print('Email login successful');
+        } else {
+          // Login with username - get user email from Firestore first
+          print('Looking up email for username: $_usernameOrEmail');
+          try {
+            final usersQuery = await _firestore
+                .collection('users')
+                .where('usernameLowerCase', isEqualTo: _usernameOrEmail.toLowerCase())
+                .limit(1)
+                .get();
+            
+            print('Firestore query completed. Found ${usersQuery.docs.length} matching users');
+            
+            if (usersQuery.docs.isEmpty) {
+              throw Exception('No account found with this username');
+            }
+            
+            final userDoc = usersQuery.docs.first;
+            final userEmail = userDoc.data()['email'] as String;
+            print('Found email for username: $userEmail');
+            
+            // Now try to sign in with the email
+            print('Attempting login with found email...');
+            await _auth.signInWithEmailAndPassword(
+              email: userEmail,
+              password: _password,
+            );
+            print('Username login successful');
+          } catch (e) {
+            print('Error during username login: $e');
+            if (e is FirebaseException) {
+              print('Firebase error code: ${e.code}');
+              print('Firebase error message: ${e.message}');
+            }
+            rethrow;
+          }
         }
       } else {
         // Register with email or username
@@ -332,9 +401,11 @@ class _AuthScreenState extends State<AuthScreen> {
         String email;
         String username;
         
+        print('Starting registration process...');
         if (isEmail) {
           email = _usernameOrEmail;
           username = _getUsernameFromEmail(email);
+          print('Registering with email: $email');
         } else {
           // Username only, create a placeholder email
           username = _usernameOrEmail;
@@ -344,6 +415,7 @@ class _AuthScreenState extends State<AuthScreen> {
             _isCheckingUsername = true;
           });
           
+          print('Checking if username exists: $username');
           final isUsernameTaken = await _isUsernameTaken(username);
           
           setState(() {
@@ -361,28 +433,41 @@ class _AuthScreenState extends State<AuthScreen> {
           }
           
           email = '$username@nobblet.app'; // Create a service domain email
+          print('Creating service email: $email');
         }
         
         // Register with email and password
+        print('Creating user account...');
         final userCredential = await _auth.createUserWithEmailAndPassword(
           email: email,
           password: _password,
         );
+        print('User account created successfully');
         
         // Save username
+        print('Updating display name...');
         await userCredential.user?.updateDisplayName(username);
+        print('Display name updated');
       }
       
       // Save user data to Firestore
+      print('Saving user data to Firestore...');
       await _chatService.saveUserData();
+      print('User data saved successfully');
       
       // Navigate to chat screen after successful auth
+      print('Navigation to chat screen...');
       Navigator.of(context).pushReplacementNamed('/chat');
-    } catch (error) {
+    } catch (error, stackTrace) {
+      print('Authentication error:');
+      print('Error: $error');
+      print('Stack trace: $stackTrace');
+      
       // Show user-friendly error message
       String errorMessage = 'An error occurred. Please try again.';
       
       if (error is FirebaseAuthException) {
+        print('Firebase Auth Error Code: ${error.code}');
         switch (error.code) {
           case 'email-already-in-use':
             errorMessage = 'This email address is already registered. Please use a different email or try logging in.';
@@ -394,7 +479,7 @@ class _AuthScreenState extends State<AuthScreen> {
             errorMessage = 'This account has been disabled. Please contact support.';
             break;
           case 'user-not-found':
-            errorMessage = 'No account found with this email. Please register first.';
+            errorMessage = 'No account found with this username/email. Please check your credentials or register first.';
             break;
           case 'wrong-password':
             errorMessage = 'Incorrect password. Please try again or use the forgot password option.';
@@ -406,7 +491,11 @@ class _AuthScreenState extends State<AuthScreen> {
             errorMessage = error.message ?? 'An authentication error occurred.';
         }
       } else {
+        // Handle custom exceptions
         errorMessage = error.toString();
+        if (errorMessage.contains('Exception:')) {
+          errorMessage = errorMessage.split('Exception:')[1].trim();
+        }
       }
       
       ScaffoldMessenger.of(context).showSnackBar(
