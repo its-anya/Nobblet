@@ -8,6 +8,7 @@ class ChatUser {
   final String? photoURL;
   final DateTime lastSeen;
   final bool isOnline;
+  final bool isAdmin;
 
   ChatUser({
     required this.id,
@@ -16,6 +17,7 @@ class ChatUser {
     this.photoURL,
     required this.lastSeen,
     required this.isOnline,
+    this.isAdmin = false,
   });
 
   factory ChatUser.fromFirebaseUser(auth.User user) {
@@ -26,6 +28,7 @@ class ChatUser {
       photoURL: user.photoURL,
       lastSeen: DateTime.now(),
       isOnline: true,
+      isAdmin: false,
     );
   }
 
@@ -38,6 +41,7 @@ class ChatUser {
       photoURL: data['photoURL'],
       lastSeen: (data['lastSeen'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isOnline: data['isOnline'] ?? false,
+      isAdmin: data['isAdmin'] ?? false,
     );
   }
 
@@ -48,6 +52,7 @@ class ChatUser {
       'photoURL': photoURL,
       'lastSeen': Timestamp.fromDate(lastSeen),
       'isOnline': isOnline,
+      'isAdmin': isAdmin,
     };
   }
 } 

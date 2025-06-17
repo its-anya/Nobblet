@@ -6,6 +6,13 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid != null;
     }
     
+    // Check if user is admin - improved version with error handling
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
     // Check if user is a participant in the chat
     function isParticipant(resource) {
       return isAuthenticated() && 
@@ -21,19 +28,18 @@ service cloud.firestore {
     
     // User profiles
     match /users/{userId} {
-      // Allow users to read any user profile
-      allow read: if isAuthenticated();
+      // Allow reading user profile for authentication purposes
+      allow read: if true;  // Allow reading user data for login lookup
       
-      // Allow users to edit only their own profile
-      allow write: if isAuthenticated() && request.auth.uid == userId;
+      // Allow users to create and edit their own profile when authenticated
+      allow create, update: if isAuthenticated() && 
+                             (request.auth.uid == userId ||
+                             isAdmin()) &&
+                             request.resource.data.keys().hasAll(['username', 'usernameLowerCase', 'email']);
       
-      // Ensure username is not empty on creation
-      allow create: if isAuthenticated() && 
-                      request.auth.uid == userId && 
-                      request.resource.data.username != null &&
-                      request.resource.data.username is string &&
-                      request.resource.data.username.size() > 0;
-                      
+      // Allow initial user creation
+      allow create: if request.auth.uid == userId;
+      
       // Allow list queries on users collection (needed for contacts)
       match /{document=**} {
         allow read: if isAuthenticated();
@@ -45,10 +51,12 @@ service cloud.firestore {
       // Allow reading if user is authenticated and either:
       // 1. The message is public, or
       // 2. The user is a participant in the conversation
+      // 3. The user is an admin
       allow read: if isAuthenticated() && 
                    (resource.data.isPublic == true || 
                     (resource.data.participants != null && 
-                     resource.data.participants.hasAny([request.auth.uid])));
+                     resource.data.participants.hasAny([request.auth.uid])) ||
+                    isAdmin());
       
       // Allow creating if user is authenticated and either:
       // 1. Creating a public message, or
@@ -60,18 +68,51 @@ service cloud.firestore {
       
       // Simplified update rule for reactions
       allow update: if isAuthenticated() && 
-                    // Either participating in the conversation
+                    // Either participating in the conversation or admin
                     ((resource.data.isPublic == true || 
                       (resource.data.participants != null && 
-                       resource.data.participants.hasAny([request.auth.uid]))) &&
+                       resource.data.participants.hasAny([request.auth.uid])) ||
+                      isAdmin()) &&
                     // And only changing reactions, nothing else
                     (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])));
       
-      // Allow deletion only if the user is the author of the message
-      allow delete: if isAuthor(resource);
+      // Allow deletion if the user is the author of the message or an admin
+      allow delete: if isAuthor(resource) || isAdmin();
       
       // Allow list queries on messages for contacts
       allow list: if isAuthenticated();
+    }
+    
+    // Admin specific collection
+    match /reports/{reportId} {
+      // Only admins can access reports
+      allow read, write: if isAdmin();
+      // Explicitly deny access for non-admins
+      allow read, write: if !isAdmin() == false;
+    }
+    
+    // Admin statistics collection
+    match /admin_stats/{statId} {
+      // Only admins can access admin statistics
+      allow read, write: if isAdmin();
+      // Explicitly deny access for non-admins
+      allow read, write: if !isAdmin() == false;
+    }
+    
+    // Reported content collection
+    match /reported_content/{contentId} {
+      // Only admins can access reported content
+      allow read, write: if isAdmin();
+      // Explicitly deny access for non-admins
+      allow read, write: if !isAdmin() == false;
+    }
+    
+    // Admin panel access control
+    match /admin_access/{docId} {
+      // Only admins can access this collection
+      allow read, write: if isAdmin();
+      // Explicitly deny access for non-admins
+      allow read, write: if !isAdmin() == false;
     }
     
     // Default deny
