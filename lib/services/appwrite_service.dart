@@ -5,11 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
+import 'package:dio/dio.dart';
+import 'dart:typed_data';
+import 'cors_proxy.dart';
 
 class AppwriteService {
   // Appwrite SDK clients
   late final Client _client;
   late final Storage _storage;
+  late final Dio _dio;
   
   // Constants
   static const String _endpoint = 'https://cloud.appwrite.io/v1';
@@ -23,7 +27,17 @@ class AppwriteService {
       ..setProject(projectId)
       ..setSelfSigned(status: true);
     
+    // Web platform specific settings
+    // Note: setMode was removed as it's not available in the current SDK version
+    
     _storage = Storage(_client);
+    
+    // Initialize Dio for better CORS handling
+    _dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
+      headers: getFileHeaders(),
+    ));
   }
   
   // Singleton instance
@@ -121,19 +135,30 @@ class AppwriteService {
       'X-Appwrite-Project': projectId,
       'X-Appwrite-Response-Format': '1.4.0',
       'X-Appwrite-Web-Session': 'true',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
     };
   }
   
   // Get file preview URL (for thumbnails)
   String getFilePreviewUrl(String fileId, {int width = 400, int height = 400}) {
+    // Add timestamp for cache busting
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    
+    // Use download URL instead of preview to avoid CORS issues
+    if (kIsWeb) {
+      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download?project=$projectId&t=$timestamp';
+    }
+    
     if (!kIsWeb) {
       final baseUrl = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/preview';
-      return '$baseUrl?width=$width&height=$height';
+      return '$baseUrl?width=$width&height=$height&t=$timestamp';
     }
     
     // For web, include session token in URL
     final baseUrl = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/preview';
-    final params = 'width=$width&height=$height&project=$projectId';
+    final params = 'width=$width&height=$height&project=$projectId&t=$timestamp';
     final url = '$baseUrl?$params';
     print('Generated preview URL: $url'); // Debug log
     return url;
@@ -141,12 +166,20 @@ class AppwriteService {
   
   // Get file view URL with proper headers for web
   String getFileViewUrl(String fileId) {
+    // Add timestamp for cache busting
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    
+    // Use download URL instead of view to avoid CORS issues
+    if (kIsWeb) {
+      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download?project=$projectId&t=$timestamp';
+    }
+    
     if (!kIsWeb) {
-      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view';
+      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view?t=$timestamp';
     }
     
     // For web, include session token in URL
-    final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view?project=$projectId';
+    final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view?project=$projectId&t=$timestamp';
     print('Generated view URL: $url'); // Debug log
     return url;
   }
@@ -196,5 +229,67 @@ class AppwriteService {
   // Check if file is a PDF
   bool isPdfFile(String fileName) {
     return getFileExtension(fileName) == 'pdf';
+  }
+  
+  // Fetch image using Dio (better CORS handling)
+  Future<Uint8List?> fetchImageWithDio(String fileId) async {
+    try {
+      final url = getFileViewUrl(fileId);
+      final response = await _dio.get<Uint8List>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: getFileHeaders(),
+          validateStatus: (status) => status! < 500,
+        ),
+      );
+      
+      if (response.statusCode == 200 && response.data != null) {
+        return response.data;
+      } else {
+        print('Dio fetch failed with status: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error fetching image with Dio: $e');
+      return null;
+    }
+  }
+  
+  // Get image as memory network image source
+  Future<ImageProvider> getImageProvider(String fileId) async {
+    try {
+      if (kIsWeb) {
+        // Try direct file view URL first
+        final directUrl = getFileViewUrl(fileId);
+        
+        // Convert to data URL using our CORS proxy
+        final proxiedUrl = await CorsProxy.getProxiedImageUrl(directUrl, getFileHeaders());
+        
+        if (proxiedUrl.startsWith('data:')) {
+          // If successfully converted to data URL, use it
+          return NetworkImage(proxiedUrl);
+        }
+        
+        // If data URL conversion failed, try fetching bytes directly
+        final imageBytes = await fetchImageWithDio(fileId);
+        if (imageBytes != null) {
+          return MemoryImage(imageBytes);
+        }
+      }
+      
+      // For non-web platforms, or as fallback, use regular network image
+      return NetworkImage(
+        getFileViewUrl(fileId),
+        headers: getFileHeaders(),
+      );
+    } catch (e) {
+      print('Error in getImageProvider: $e');
+      // Ultimate fallback - try preview URL instead of view URL
+      return NetworkImage(
+        getFilePreviewUrl(fileId),
+        headers: getFileHeaders(),
+      );
+    }
   }
 } 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -8,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../services/appwrite_service.dart';
+import 'package:url_launcher/url_launcher_string.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class FilePreviewWidget extends StatefulWidget {
   final String fileId;
@@ -44,10 +47,14 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
   @override
   void initState() {
     super.initState();
-    if (_appwriteService.isVideoFile(widget.fileName)) {
-      _initializeVideoPlayer();
-    } else if (_appwriteService.isPdfFile(widget.fileName)) {
-      _loadPdf();
+    
+    // Only initialize media players on non-web platforms
+    if (!kIsWeb) {
+      if (_appwriteService.isVideoFile(widget.fileName)) {
+        _initializeVideoPlayer();
+      } else if (_appwriteService.isPdfFile(widget.fileName)) {
+        _loadPdf();
+      }
     }
   }
 
@@ -126,88 +133,152 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
   }
 
   Widget _buildImagePreview() {
-    final imageUrl = _appwriteService.getFilePreviewUrl(
-      widget.fileId,
-      width: (widget.width ?? 400).toInt(),
-      height: (widget.height ?? 400).toInt(),
-    );
-
-    return Container(
-      width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
-      height: widget.height ?? 200,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.black.withOpacity(0.1),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: kIsWeb
-          ? Image.network(
-              imageUrl,
-              fit: BoxFit.contain,
-              headers: _appwriteService.getFileHeaders(),
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Center(
-                  child: CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                        : null,
+    if (kIsWeb) {
+      // For web, show a placeholder with download button
+      return Container(
+        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+        height: widget.height ?? 200,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.grey.shade100,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.image,
+                size: 64,
+                color: Colors.blue.shade300,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.fileName,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final url = _appwriteService.getFileDownloadUrl(widget.fileId);
+                  try {
+                    final uri = Uri.parse(url);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  } catch (e) {
+                    print('Error launching URL: $e');
+                  }
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Download Image'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      // For mobile platforms, try to display the image
+      final imageUrl = _appwriteService.getFilePreviewUrl(widget.fileId);
+      
+      return Container(
+        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+        height: widget.height ?? 200,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.black.withOpacity(0.1),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.image,
+                    size: 64,
+                    color: Colors.blue.shade300,
                   ),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                print('Image loading error: $error');
-                print('Stack trace: $stackTrace');
-                print('Failed URL: $imageUrl');
-                print('Headers: ${_appwriteService.getFileHeaders()}');
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 32),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Failed to load image',
-                        style: TextStyle(
-                          color: Colors.red[700],
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      Text(
-                        error.toString(),
-                        style: TextStyle(
-                          color: Colors.red[700]?.withOpacity(0.7),
-                          fontSize: 12,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.fileName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                );
-              },
-            )
-          : Image.network(
-              imageUrl,
-              fit: BoxFit.contain,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Center(
-                  child: CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                        : null,
-                  ),
-                );
-              },
-            ),
-      ),
-    );
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildVideoPreview() {
+    if (kIsWeb) {
+      // For web, show a placeholder with download button
+      return Container(
+        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+        height: widget.height ?? 200,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.grey.shade100,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.video_library,
+                size: 64,
+                color: Colors.purple.shade300,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.fileName,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final url = _appwriteService.getFileDownloadUrl(widget.fileId);
+                  try {
+                    final uri = Uri.parse(url);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  } catch (e) {
+                    print('Error launching URL: $e');
+                  }
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Download Video'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // For mobile platforms
     if (!_isVideoInitialized) {
       return SizedBox(
         width: widget.width,
@@ -231,6 +302,58 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
   }
 
   Widget _buildPdfPreview() {
+    if (kIsWeb) {
+      // For web, show a placeholder with download button
+      return Container(
+        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+        height: widget.height ?? 200,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.grey.shade100,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.picture_as_pdf,
+                size: 64,
+                color: Colors.red.shade300,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.fileName,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final url = _appwriteService.getFileDownloadUrl(widget.fileId);
+                  try {
+                    final uri = Uri.parse(url);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  } catch (e) {
+                    print('Error launching URL: $e');
+                  }
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Download PDF'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // For mobile platforms
     if (_isPdfLoading) {
       return SizedBox(
         width: widget.width,
