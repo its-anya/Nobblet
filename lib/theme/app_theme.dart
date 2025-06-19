@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class AppTheme {
   // Primary colors - Futuristic dark theme with neon accents
   static const Color primaryColor = Color(0xFF0B132B);       // Deep blue
-  static const Color accentColor = Color(0xFF00F0FF);        // Neon cyan
+  static const Color accentColor = Color(0xFF00E0FF);        // Adjusted neon cyan to be slightly darker for better visibility
   static const Color lightAccentColor = Color(0xFF00E676);   // Neon green
   
   // Background colors
@@ -60,7 +60,7 @@ class AppTheme {
 
   // Gradients
   static const LinearGradient neonGradient = LinearGradient(
-    colors: [Color(0xFF00F0FF), Color(0xFF00E676)],
+    colors: [Color(0xFF1A73E8), Color(0xFF0D47A1)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );

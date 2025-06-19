@@ -230,13 +230,13 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: isMe 
-          ? Colors.white.withOpacity(0.15)
-          : Colors.black.withOpacity(0.15),
+          ? Colors.white.withOpacity(0.12)
+          : Colors.black.withOpacity(0.12),
         borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(
-            color: isMe ? Colors.white.withOpacity(0.5) : AppTheme.accentColor.withOpacity(0.7),
-            width: 2,
+            color: isMe ? Colors.white.withOpacity(0.6) : AppTheme.accentColor.withOpacity(0.8),
+            width: 3,
           ),
         ),
       ),
@@ -247,7 +247,7 @@ class MessageBubble extends StatelessWidget {
             children: [
               const Icon(
                 Icons.reply,
-                size: 12,
+                size: 14,
                 color: AppTheme.accentColor,
               ),
               const SizedBox(width: 4),
@@ -257,8 +257,8 @@ class MessageBubble extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: isMe ? Colors.white.withOpacity(0.9) : AppTheme.accentColor,
+                    fontSize: 13,
+                    color: isMe ? Colors.white.withOpacity(0.95) : AppTheme.accentColor,
                   ),
                 ),
               ),
@@ -270,8 +270,8 @@ class MessageBubble extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 12,
-              color: isMe ? Colors.white.withOpacity(0.8) : AppTheme.secondaryTextColor,
+              fontSize: 13,
+              color: isMe ? Colors.white.withOpacity(0.9) : AppTheme.secondaryTextColor,
             ),
           ),
         ],
@@ -286,10 +286,10 @@ class MessageBubble extends StatelessWidget {
     
     return Container(
       constraints: BoxConstraints(
-        maxHeight: 200,
-        maxWidth: MediaQuery.of(context).size.width * 0.7,
+        maxHeight: 150,
+        maxWidth: MediaQuery.of(context).size.width * 0.6,
       ),
-      margin: const EdgeInsets.only(top: 12, bottom: 8),
+      margin: const EdgeInsets.only(top: 8, bottom: 4),
       child: FilePreviewWidget(
         fileId: message.fileId!,
         fileName: message.fileName!,

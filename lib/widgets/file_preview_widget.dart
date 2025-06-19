@@ -135,97 +135,58 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
   }
 
   Widget _buildImagePreview() {
-    if (kIsWeb) {
-      // For web, show a placeholder with download button
-      return Container(
-        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
-        height: widget.height ?? 200,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.grey.shade100,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.image,
-                size: 64,
-                color: Colors.blue.shade300,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.fileName,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+    return Container(
+      width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+      constraints: BoxConstraints(
+        maxHeight: widget.height ?? 180,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.grey.shade900,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 100),
+                child: Icon(
+                  Icons.image,
+                  size: 48,
+                  color: Colors.blue.shade300,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  final url = _appwriteService.getFileDownloadUrl(widget.fileId);
-                  try {
-                    final uri = Uri.parse(url);
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  } catch (e) {
-                    print('Error launching URL: $e');
-                  }
-                },
-                icon: const Icon(Icons.download),
-                label: const Text('Download Image'),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.3),
               ),
-            ],
-          ),
-        ),
-      );
-    } else {
-      // For mobile platforms, try to display the image
-      final imageUrl = _appwriteService.getFilePreviewUrl(widget.fileId);
-      
-      return Container(
-        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
-        height: widget.height ?? 200,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.black.withOpacity(0.1),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Image.network(
-            imageUrl,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
-              return Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.image,
-                    size: 64,
-                    color: Colors.blue.shade300,
-                  ),
-                  const SizedBox(height: 8),
                   Text(
                     widget.fileName,
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
+                      color: Colors.white,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 8),
+                  _buildDownloadButton('Download Image'),
                 ],
-              );
-            },
-          ),
+              ),
+            ),
+          ],
         ),
-      );
-    }
+      ),
+    );
   }
 
   Widget _buildVideoPreview() {
@@ -304,134 +265,56 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
   }
 
   Widget _buildPdfPreview() {
-    if (kIsWeb) {
-      // For web, show a placeholder with download button
-      return Container(
-        width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
-        height: widget.height ?? 200,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.grey.shade100,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.picture_as_pdf,
-                size: 64,
-                color: Colors.red.shade300,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.fileName,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  final url = _appwriteService.getFileDownloadUrl(widget.fileId);
-                  try {
-                    final uri = Uri.parse(url);
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  } catch (e) {
-                    print('Error launching URL: $e');
-                  }
-                },
-                icon: const Icon(Icons.download),
-                label: const Text('Download PDF'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    
-    // For mobile platforms
-    if (_isPdfLoading) {
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (_pdfFile == null) {
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: const Center(
-          child: Text('Unable to load PDF'),
-        ),
-      );
-    }
-
     return Container(
-      width: widget.width,
-      height: widget.height,
+      width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+      constraints: BoxConstraints(
+        maxHeight: widget.height ?? 180,
+      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        color: Colors.grey.shade900,
       ),
-      child: Column(
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(12),
-                topRight: const Radius.circular(12),
-              ),
-              child: PDFView(
-                filePath: _pdfFile!.path,
-                enableSwipe: true,
-                swipeHorizontal: true,
-                autoSpacing: false,
-                pageFling: true,
-                pageSnap: true,
-                onRender: (pages) {
-                  setState(() {
-                    _pdfTotalPages = pages!;
-                  });
-                },
-                onPageChanged: (index, _) {
-                  setState(() {
-                    _pdfCurrentPage = index!;
-                  });
-                },
-              ),
-            ),
-          ),
-          if (widget.showControls && _pdfTotalPages > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(12),
-                  bottomRight: Radius.circular(12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 100),
+                child: Icon(
+                  Icons.picture_as_pdf,
+                  size: 48,
+                  color: Colors.red.shade300,
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.3),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Page ${_pdfCurrentPage + 1} of $_pdfTotalPages',
-                    style: const TextStyle(fontSize: 14),
+                    widget.fileName,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 8),
+                  _buildDownloadButton('Download PDF'),
                 ],
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -439,48 +322,86 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
   Widget _buildZipPreview() {
     return Container(
       width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
-      height: widget.height ?? 200,
+      constraints: BoxConstraints(
+        maxHeight: widget.height ?? 180,
+      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.grey.shade100,
+        color: Colors.grey.shade900,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.folder_zip,
-              size: 64,
-              color: Colors.amber.shade700,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.fileName,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+            Flexible(
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 100),
+                child: Icon(
+                  Icons.folder_zip,
+                  size: 48,
+                  color: Colors.amber.shade700,
+                ),
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () async {
-                final url = _appwriteService.getFileDownloadUrl(widget.fileId);
-                try {
-                  final uri = Uri.parse(url);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                } catch (e) {
-                  print('Error launching URL: $e');
-                }
-              },
-              icon: const Icon(Icons.download),
-              label: const Text('Download ZIP'),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.3),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.fileName,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildDownloadButton('Download ZIP'),
+                ],
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDownloadButton(String label) {
+    return SizedBox(
+      width: double.infinity,
+      height: 36,
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          final url = _appwriteService.getFileDownloadUrl(widget.fileId);
+          try {
+            final uri = Uri.parse(url);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          } catch (e) {
+            print('Error launching URL: $e');
+          }
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue.shade700,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        icon: const Icon(Icons.download, size: 18),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 13),
         ),
       ),
     );
