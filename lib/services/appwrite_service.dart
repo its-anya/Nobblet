@@ -129,16 +129,21 @@ class AppwriteService {
   
   // Helper method to get headers for file requests
   Map<String, String> getFileHeaders() {
-    if (!kIsWeb) return {};
-    
-    return {
+    // Include headers for both web and mobile platforms
+    Map<String, String> headers = {
       'X-Appwrite-Project': projectId,
       'X-Appwrite-Response-Format': '1.4.0',
-      'X-Appwrite-Web-Session': 'true',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
       'Expires': '0',
     };
+    
+    // Add web-specific headers
+    if (kIsWeb) {
+      headers['X-Appwrite-Web-Session'] = 'true';
+    }
+    
+    return headers;
   }
   
   // Get file preview URL (for thumbnails)
@@ -186,12 +191,11 @@ class AppwriteService {
   
   // Get file download URL
   String getFileDownloadUrl(String fileId) {
-    if (!kIsWeb) {
-      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download';
-    }
+    // Add timestamp for cache busting
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
     
-    // For web, include session token in URL
-    final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download?project=$projectId';
+    // For both web and mobile, include project ID and timestamp
+    final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download?project=$projectId&t=$timestamp';
     print('Generated download URL: $url'); // Debug log
     return url;
   }

@@ -11,6 +11,9 @@ import 'package:http/http.dart' as http;
 import '../services/appwrite_service.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:dio/dio.dart';
+import 'package:app_settings/app_settings.dart';
 
 class FilePreviewWidget extends StatefulWidget {
   final String fileId;
@@ -381,13 +384,156 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
       child: ElevatedButton.icon(
         onPressed: () async {
           final url = _appwriteService.getFileDownloadUrl(widget.fileId);
-          try {
-            final uri = Uri.parse(url);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
+          
+          if (kIsWeb) {
+            // For web, use browser download
+            try {
+              final uri = Uri.parse(url);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            } catch (e) {
+              print('Error launching URL: $e');
             }
-          } catch (e) {
-            print('Error launching URL: $e');
+          } else {
+            // For mobile, download directly to device
+            try {
+              // Show downloading indicator
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Downloading file...'))
+              );
+              
+              // Use Dio for better error handling and headers
+              final dio = Dio();
+              
+              // Add authentication headers if needed
+              final headers = _appwriteService.getFileHeaders();
+              
+              // Check storage permission first
+              bool hasPermission = false;
+              if (Platform.isAndroid) {
+                // For Android 13+ (SDK 33+), we need to request specific permissions
+                if (await Permission.manageExternalStorage.isGranted) {
+                  hasPermission = true;
+                } else {
+                  // Request storage permissions
+                  print('Requesting storage permissions...');
+                  
+                  // First try with manage external storage (for Android 11+)
+                  var manageStatus = await Permission.manageExternalStorage.request();
+                  if (manageStatus.isGranted) {
+                    hasPermission = true;
+                  } else {
+                    // Fall back to regular storage permission
+                    var storageStatus = await Permission.storage.request();
+                    if (storageStatus.isGranted) {
+                      hasPermission = true;
+                    }
+                  }
+                  
+                  // If still no permission, try with media permissions (Android 13+)
+                  if (!hasPermission) {
+                    var mediaStatus = await Permission.photos.request();
+                    hasPermission = mediaStatus.isGranted;
+                  }
+                }
+                
+                if (!hasPermission) {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Storage permission is required to download files. Please grant permission in app settings.'),
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 5),
+                      action: SnackBarAction(
+                        label: 'Settings',
+                        onPressed: () async {
+                          await openAppSettings();
+                        },
+                      ),
+                    )
+                  );
+                  return;
+                }
+              }
+              
+              // Get the downloads directory
+              Directory? directory;
+              if (Platform.isAndroid) {
+                try {
+                  // Try to use the Download directory first
+                  directory = Directory('/storage/emulated/0/Download');
+                  // Make sure the directory exists
+                  if (!await directory.exists()) {
+                    await directory.create(recursive: true);
+                  }
+                } catch (e) {
+                  print('Error creating download directory: $e');
+                  // Fall back to app's external storage directory
+                  directory = await getExternalStorageDirectory();
+                  
+                  if (directory == null) {
+                    // Last resort: use app's documents directory
+                    directory = await getApplicationDocumentsDirectory();
+                  }
+                }
+              } else {
+                directory = await getApplicationDocumentsDirectory();
+              }
+              
+              if (directory != null) {
+                // Create file path
+                final filePath = '${directory.path}/${widget.fileName}';
+                print('Downloading to: $filePath');
+                print('Download URL: $url');
+                
+                try {
+                  // Download file with progress
+                  await dio.download(
+                    url,
+                    filePath,
+                    options: Options(
+                      headers: headers,
+                      receiveTimeout: Duration(minutes: 5),
+                    ),
+                    onReceiveProgress: (received, total) {
+                      if (total != -1) {
+                        print('Download progress: ${(received / total * 100).toStringAsFixed(0)}%');
+                      }
+                    }
+                  );
+                  
+                  // Show success message
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Downloaded to ${directory.path}'),
+                      backgroundColor: Colors.green,
+                    )
+                  );
+                } catch (e) {
+                  print('Error during download: $e');
+                  throw e; // Re-throw to be caught by the outer catch block
+                }
+              } else {
+                throw Exception('Could not access download directory');
+              }
+            } catch (e) {
+              print('Error downloading file: $e');
+              if (e is DioException) {
+                print('DioError type: ${e.type}');
+                print('DioError message: ${e.message}');
+                print('DioError response: ${e.response}');
+              }
+              
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Download failed. Please try again.'),
+                  backgroundColor: Colors.red,
+                )
+              );
+            }
           }
         },
         style: ElevatedButton.styleFrom(
