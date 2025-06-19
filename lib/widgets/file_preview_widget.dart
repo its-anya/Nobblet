@@ -127,6 +127,8 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
       return _buildVideoPreview();
     } else if (_appwriteService.isPdfFile(widget.fileName)) {
       return _buildPdfPreview();
+    } else if (_appwriteService.isZipFile(widget.fileName)) {
+      return _buildZipPreview();
     } else {
       return _buildGenericFilePreview();
     }
@@ -434,6 +436,56 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
     );
   }
 
+  Widget _buildZipPreview() {
+    return Container(
+      width: widget.width ?? MediaQuery.of(context).size.width * 0.6,
+      height: widget.height ?? 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.grey.shade100,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.folder_zip,
+              size: 64,
+              color: Colors.amber.shade700,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.fileName,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final url = _appwriteService.getFileDownloadUrl(widget.fileId);
+                try {
+                  final uri = Uri.parse(url);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) {
+                  print('Error launching URL: $e');
+                }
+              },
+              icon: const Icon(Icons.download),
+              label: const Text('Download ZIP'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildGenericFilePreview() {
     // For any other file types
     IconData iconData;
@@ -445,11 +497,6 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
     } else if (widget.mimeType.contains('text')) {
       iconData = Icons.description;
       iconColor = Colors.blue;
-    } else if (widget.mimeType.contains('zip') || 
-               widget.mimeType.contains('rar') ||
-               widget.mimeType.contains('tar')) {
-      iconData = Icons.folder_zip;
-      iconColor = Colors.amber;
     } else {
       iconData = Icons.insert_drive_file;
       iconColor = Colors.grey;
@@ -482,6 +529,23 @@ class _FilePreviewWidgetState extends State<FilePreviewWidget> {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 16),
+          if (kIsWeb)
+            ElevatedButton.icon(
+              onPressed: () async {
+                final url = _appwriteService.getFileDownloadUrl(widget.fileId);
+                try {
+                  final uri = Uri.parse(url);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) {
+                  print('Error launching URL: $e');
+                }
+              },
+              icon: const Icon(Icons.download),
+              label: const Text('Download File'),
+            ),
         ],
       ),
     );

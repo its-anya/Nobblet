@@ -55,7 +55,7 @@ class AppwriteService {
       // Pick file
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: allowedExtensions ?? ['jpg', 'jpeg', 'png', 'mp4', 'pdf'],
+        allowedExtensions: allowedExtensions ?? ['jpg', 'jpeg', 'png', 'mp4', 'pdf', 'zip', 'rar', 'tar', '7z', 'gz'],
       );
       
       if (result == null || result.files.isEmpty) {
@@ -229,6 +229,12 @@ class AppwriteService {
   // Check if file is a PDF
   bool isPdfFile(String fileName) {
     return getFileExtension(fileName) == 'pdf';
+  }
+  
+  // Check if file is a ZIP file
+  bool isZipFile(String fileName) {
+    final ext = getFileExtension(fileName);
+    return ['zip', 'rar', 'tar', '7z', 'gz'].contains(ext);
   }
   
   // Fetch image using Dio (better CORS handling)
