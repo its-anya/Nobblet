@@ -38,6 +38,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _showEmojiPicker = false;
   Message? _replyToMessage;
   int _selectedTab = 0;
+  
+  // Map to store uploading messages
+  final Map<String, Message> _uploadingMessages = {};
 
   // Default reaction emojis
   final List<String> _defaultReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
@@ -184,24 +187,53 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Handle file upload progress updates
+  void _handleFileUploadProgress(Message message, double progress, String timeRemaining, bool isComplete) {
+    // Progress should always be valid now with our custom implementation
+    print("File upload progress: ${message.fileName ?? 'File'} - ${(progress * 100).toStringAsFixed(0)}% - $timeRemaining");
+    
+    // Store or update the message in the uploading messages map
+    if (mounted) {
+      setState(() {
+        if (isComplete) {
+          // Remove from uploading messages once complete
+          print("Upload complete for: ${message.fileName ?? 'File'}");
+          _uploadingMessages.remove(message.id);
+        } else {
+          // Update the message with new progress
+          final updatedMessage = message.copyWith(
+            uploadProgress: progress,
+            // We need to ensure timeRemaining is reflected in the UI
+            formattedFileSize: message.formattedFileSize ?? '0 B',
+          );
+          
+          _uploadingMessages[message.id] = updatedMessage;
+        }
+      });
+    }
+  }
+
   // Share a file
   Future<void> _shareFile() async {
     final text = _messageController.text.trim();
-
+    
     try {
+      Message? tempMessage;
+      
       if (_tabController.index == 0) {
         // Share file in public chat
-        await _chatService.uploadFileAndSendMessage(
+        tempMessage = await _chatService.uploadFileAndSendMessage(
           context: context,
           text: text,
           isPublic: true,
           replyToMessageId: _replyToMessage?.id,
           replyToText: _replyToMessage?.text,
           replyToSenderName: _replyToMessage?.senderName,
+          onProgressUpdate: _handleFileUploadProgress,
         );
       } else if (_selectedUser != null) {
         // Share file in private chat
-        await _chatService.uploadFileAndSendMessage(
+        tempMessage = await _chatService.uploadFileAndSendMessage(
           context: context,
           text: text,
           isPublic: false,
@@ -209,14 +241,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           replyToMessageId: _replyToMessage?.id,
           replyToText: _replyToMessage?.text,
           replyToSenderName: _replyToMessage?.senderName,
+          onProgressUpdate: _handleFileUploadProgress,
         );
       }
-      _messageController.clear();
-      // Clear reply state after sending
-      setState(() {
-        _replyToMessage = null;
-        _canSendMessage = false;
-      });
+      
+      // Clear message input if upload started
+      if (tempMessage != null) {
+        _messageController.clear();
+        setState(() {
+          _replyToMessage = null;
+          
+          // Add initial message to uploading map if it's still uploading
+          if (tempMessage?.isUploading ?? false) {
+            _uploadingMessages[tempMessage!.id] = tempMessage;
+          }
+        });
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error sharing file: $e')),
@@ -828,7 +868,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ? _chatService.getPublicMessages()
           : (userId != null ? _chatService.getPrivateMessages(userId) : null),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting && _uploadingMessages.isEmpty) {
           return const Center(
             child: CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
@@ -856,7 +896,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           );
         }
 
-        final messages = snapshot.data ?? [];
+        // Get messages from the stream
+        List<Message> messages = snapshot.data ?? [];
+        
+        // Add uploading messages
+        if (_uploadingMessages.isNotEmpty) {
+          // Only add relevant uploading messages (public or private to this user)
+          final uploadingMsgs = _uploadingMessages.values.where((msg) {
+            if (isPublic) return msg.isPublic;
+            return !msg.isPublic && (msg.receiverId == userId || msg.senderId == userId);
+          }).toList();
+          
+          // Add at the beginning (newest messages)
+          messages = [...uploadingMsgs, ...messages];
+        }
         
         if (messages.isEmpty) {
           return Center(
@@ -907,7 +960,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   },
                   child: GestureDetector(
                     onLongPress: () {
-                      _showMessageOptions(message, isAdmin);
+                      if (!message.isUploading) {  // Don't show options for uploading messages
+                        _showMessageOptions(message, isAdmin);
+                      }
                     },
                     child: MessageBubble(
                       message: message,
@@ -915,7 +970,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       isAdmin: isAdmin,
                       onReply: (msg) => _setReplyMessage(msg),
                       onReaction: (msg, emoji) => _handleReaction(msg, emoji),
-                      onDelete: (isMe || isAdmin) ? (msg) => _deleteMessage(msg.id, isAdmin) : null,
+                      onDelete: (isMe || isAdmin) && !message.isUploading ? (msg) => _deleteMessage(msg.id, isAdmin) : null,
+                      onFileProgress: message.isUploading ? _handleFileUploadProgress : null,
                     ),
                   ),
                 );

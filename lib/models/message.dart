@@ -25,10 +25,15 @@ class Message {
   final String? replyToMessageId;      // ID of message being replied to
   final String? replyToText;           // Preview text of replied message
   final String? replyToSenderName;     // Name of sender of replied message
-  // New fields for file attachments
+  // File attachment fields
   final String? fileId;                // Appwrite file ID
   final String? fileName;              // Original file name
   final String? mimeType;              // File MIME type
+  // File upload status fields
+  final bool isUploading;              // Whether file is currently uploading
+  final double uploadProgress;         // Upload progress (0.0 - 1.0)
+  final String? formattedFileSize;     // Human-readable file size
+  final int? fileSize;                 // Raw file size in bytes
 
   Message({
     required this.id,
@@ -46,6 +51,10 @@ class Message {
     this.fileId,
     this.fileName,
     this.mimeType,
+    this.isUploading = false,
+    this.uploadProgress = 0.0,
+    this.formattedFileSize,
+    this.fileSize,
   });
 
   factory Message.fromFirestore(DocumentSnapshot doc) {
@@ -77,11 +86,16 @@ class Message {
       fileId: data['fileId'],
       fileName: data['fileName'],
       mimeType: data['mimeType'],
+      // Upload status (won't be in Firestore)
+      isUploading: data['isUploading'] ?? false,
+      uploadProgress: data['uploadProgress']?.toDouble() ?? 0.0,
+      formattedFileSize: data['formattedFileSize'],
+      fileSize: data['fileSize'],
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {
+    final Map<String, dynamic> data = {
       'senderId': senderId,
       'senderName': senderName,
       'senderAvatar': senderAvatar,
@@ -98,6 +112,16 @@ class Message {
       'fileName': fileName, 
       'mimeType': mimeType,
     };
+    
+    // Only include upload fields for transient messages
+    if (isUploading) {
+      data['isUploading'] = true;
+      data['uploadProgress'] = uploadProgress;
+      data['formattedFileSize'] = formattedFileSize;
+      data['fileSize'] = fileSize;
+    }
+    
+    return data;
   }
   
   // Helper to check if this message has a file attachment
@@ -109,6 +133,51 @@ class Message {
       return [MessageAttachment(fileId: fileId!, fileName: fileName!, mimeType: mimeType!)];
     }
     return [];
+  }
+
+  // Copy this message with updated values
+  Message copyWith({
+    String? id,
+    String? senderId,
+    String? senderName,
+    String? senderAvatar,
+    String? text,
+    DateTime? timestamp,
+    bool? isPublic,
+    String? receiverId,
+    Map<String, String>? reactions,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSenderName,
+    String? fileId,
+    String? fileName,
+    String? mimeType,
+    bool? isUploading,
+    double? uploadProgress,
+    String? formattedFileSize,
+    int? fileSize,
+  }) {
+    return Message(
+      id: id ?? this.id,
+      senderId: senderId ?? this.senderId,
+      senderName: senderName ?? this.senderName,
+      senderAvatar: senderAvatar ?? this.senderAvatar,
+      text: text ?? this.text,
+      timestamp: timestamp ?? this.timestamp,
+      isPublic: isPublic ?? this.isPublic,
+      receiverId: receiverId ?? this.receiverId,
+      reactions: reactions ?? this.reactions,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+      replyToText: replyToText ?? this.replyToText,
+      replyToSenderName: replyToSenderName ?? this.replyToSenderName,
+      fileId: fileId ?? this.fileId,
+      fileName: fileName ?? this.fileName,
+      mimeType: mimeType ?? this.mimeType,
+      isUploading: isUploading ?? this.isUploading,
+      uploadProgress: uploadProgress ?? this.uploadProgress,
+      formattedFileSize: formattedFileSize ?? this.formattedFileSize,
+      fileSize: fileSize ?? this.fileSize,
+    );
   }
 
   factory Message.fromMap(Map<String, dynamic> data, String id) {
@@ -130,6 +199,10 @@ class Message {
       fileId: data['fileId'],
       fileName: data['fileName'],
       mimeType: data['mimeType'],
+      isUploading: data['isUploading'] ?? false,
+      uploadProgress: data['uploadProgress']?.toDouble() ?? 0.0,
+      formattedFileSize: data['formattedFileSize'],
+      fileSize: data['fileSize'],
     );
   }
 } 

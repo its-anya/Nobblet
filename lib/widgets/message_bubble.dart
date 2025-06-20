@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 import '../widgets/file_preview_widget.dart';
+import '../widgets/uploading_file_widget.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -10,6 +11,7 @@ class MessageBubble extends StatelessWidget {
   final Function(Message)? onReply;
   final Function(Message, String)? onReaction;
   final Function(Message)? onDelete;
+  final Function(Message, double, String, bool)? onFileProgress;
   
   const MessageBubble({
     Key? key,
@@ -19,6 +21,7 @@ class MessageBubble extends StatelessWidget {
     this.onReply,
     this.onReaction,
     this.onDelete,
+    this.onFileProgress,
   }) : super(key: key);
 
   @override
@@ -280,23 +283,39 @@ class MessageBubble extends StatelessWidget {
   }
   
   Widget _buildFileAttachment(BuildContext context) {
-    if (message.fileId == null || message.fileName == null || message.mimeType == null) {
-      return const SizedBox.shrink();
+    if (message.isUploading) {
+      // Show the uploading file widget for files that are being uploaded
+      final fileInfo = {
+        'fileName': message.fileName ?? 'Unknown file',
+        'fileId': message.fileId ?? '',
+        'formattedSize': message.formattedFileSize ?? '0 B',
+        'size': message.fileSize ?? 0,
+        'mimeType': message.mimeType,
+        'uploadProgress': message.uploadProgress,
+      };
+      
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: UploadingFileWidget(
+          fileInfo: fileInfo,
+          onProgressUpdate: (fileInfo, progress, timeRemaining, isComplete) {
+            if (onFileProgress != null) {
+              onFileProgress!(message, progress, timeRemaining, isComplete);
+            }
+          },
+        ),
+      );
+    } else {
+      // Show the regular file preview for completed uploads
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: FilePreviewWidget(
+          fileId: message.fileId!,
+          fileName: message.fileName!,
+          mimeType: message.mimeType ?? 'application/octet-stream',
+        ),
+      );
     }
-    
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: 150,
-        maxWidth: MediaQuery.of(context).size.width * 0.6,
-      ),
-      margin: const EdgeInsets.only(top: 8, bottom: 4),
-      child: FilePreviewWidget(
-        fileId: message.fileId!,
-        fileName: message.fileName!,
-        mimeType: message.mimeType!,
-        showControls: true,
-      ),
-    );
   }
   
   Widget _buildMessageFooter(BuildContext context) {

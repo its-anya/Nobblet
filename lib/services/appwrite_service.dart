@@ -7,7 +7,9 @@ import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:dio/dio.dart';
 import 'dart:typed_data';
+import '../theme/app_theme.dart';
 import 'cors_proxy.dart';
+import 'dart:async';
 
 class AppwriteService {
   // Appwrite SDK clients
@@ -16,9 +18,12 @@ class AppwriteService {
   late final Dio _dio;
   
   // Constants
-  static const String _endpoint = 'https://cloud.appwrite.io/v1';
-  static const String projectId = '683932070023292fdf26';
-  static const String _bucketId = '684d55f9000259403eb0';
+  static const String _endpoint = 'https://nyc.cloud.appwrite.io/v1';
+  static const String projectId = '68552b2f00049e3242a1';
+  static const String _bucketId = '68552b870010295697eb';
+  
+  // Custom upload progress steps
+  static const List<int> _progressSteps = [0, 2, 5, 10, 13, 15, 18, 20, 23, 30, 38, 46, 56, 61, 68, 72, 74, 79, 80, 86, 89, 90, 92, 94, 96, 98, 99, 100];
   
   // Private constructor
   AppwriteService._() {
@@ -50,6 +55,7 @@ class AppwriteService {
   Future<Map<String, dynamic>?> uploadFile({
     required BuildContext context,
     List<String>? allowedExtensions,
+    Function(double progress, String timeRemaining, bool isComplete)? onProgressUpdate,
   }) async {
     try {
       // Pick file
@@ -65,14 +71,77 @@ class AppwriteService {
       PlatformFile file = result.files.first;
       String fileName = file.name;
       String? mimeType = lookupMimeType(fileName);
+      String fileSize = _formatFileSize(file.size);
       
       // Generate a unique ID for the file
       final String fileId = ID.unique();
       
-      // Upload the file based on platform
+      // Immediately return file info to display in chat while uploading
+      final fileInfo = {
+        'fileId': fileId,
+        'fileName': fileName,
+        'mimeType': mimeType,
+        'size': file.size,
+        'formattedSize': fileSize,
+        'isUploading': true,
+        'uploadProgress': 0.0,
+      };
+      
+      // Initial progress update with 0%
+      if (onProgressUpdate != null) {
+        onProgressUpdate(0.0, "Starting upload...", false);
+      }
+      
+      // Upload progress tracking
+      DateTime startTime = DateTime.now();
+      int currentStepIndex = 0;
+      
+      // Create a completer to handle the upload process
+      final completer = Completer<Map<String, dynamic>>();
+      
+      // Timer for custom progress updates
+      Timer? customProgressTimer;
+      
+      // Setup custom progress timer
+      customProgressTimer = Timer.periodic(Duration(milliseconds: 200 + (file.size ~/ 50000)), (timer) {
+        if (currentStepIndex < _progressSteps.length - 1) {
+          currentStepIndex++;
+          double progressValue = _progressSteps[currentStepIndex] / 100.0;
+          
+          String estimatedTimeRemaining = "Uploading...";
+          if (currentStepIndex < _progressSteps.length - 3) {
+            final elapsedSeconds = DateTime.now().difference(startTime).inSeconds;
+            final remainingSteps = _progressSteps.length - currentStepIndex - 1;
+            final remainingSeconds = (elapsedSeconds / currentStepIndex) * remainingSteps;
+            
+            if (remainingSeconds > 60) {
+              final minutes = (remainingSeconds / 60).floor();
+              final seconds = remainingSeconds % 60;
+              estimatedTimeRemaining = '$minutes min ${seconds.toStringAsFixed(0)} sec';
+            } else {
+              estimatedTimeRemaining = '${remainingSeconds.toStringAsFixed(0)} sec';
+            }
+          } else if (currentStepIndex >= _progressSteps.length - 3) {
+            estimatedTimeRemaining = "Finishing...";
+          }
+          
+          if (onProgressUpdate != null) {
+            onProgressUpdate(progressValue, estimatedTimeRemaining, false);
+          }
+          
+          print("Custom progress update: ${_progressSteps[currentStepIndex]}%");
+          
+          // If we reach the last step, stop the timer
+          if (currentStepIndex == _progressSteps.length - 2) { // 99%
+            timer.cancel();
+          }
+        }
+      });
+      
+      // Upload the file based on platform without showing dialog
       if (kIsWeb) {
         // Web platform
-        final uploadedFile = await _storage.createFile(
+        _storage.createFile(
           bucketId: _bucketId,
           fileId: fileId,
           file: InputFile.fromBytes(
@@ -84,17 +153,44 @@ class AppwriteService {
             Permission.read(Role.any()),
             Permission.write(Role.any()),
           ],
-        );
+          onProgress: (progress) {
+            // We're ignoring the real progress and using our custom progress instead
+            print("Web upload actual progress: ${progress.progress * 100}%");
+          },
+        ).then((uploadedFile) {
+          // Cancel custom progress timer if it's still running
+          customProgressTimer?.cancel();
+          
+          // Update with completed state (100%)
+          if (onProgressUpdate != null) {
+            onProgressUpdate(1.0, "Complete", true);
+          }
+          completer.complete(fileInfo);
+        }).catchError((error) {
+          // Cancel custom progress timer if it's still running
+          customProgressTimer?.cancel();
+          
+          print('Error uploading file: $error');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: AppTheme.errorColor),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text('Error uploading file: ${error.toString()}')),
+                ],
+              ),
+              backgroundColor: AppTheme.secondaryBackgroundColor,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          completer.completeError(error);
+        });
         
-        return {
-          'fileId': uploadedFile.$id,
-          'fileName': fileName,
-          'mimeType': mimeType,
-          'size': file.size,
-        };
       } else {
         // Mobile platform
-        final uploadedFile = await _storage.createFile(
+        _storage.createFile(
           bucketId: _bucketId,
           fileId: fileId,
           file: InputFile.fromPath(
@@ -106,24 +202,158 @@ class AppwriteService {
             Permission.read(Role.any()),
             Permission.write(Role.any()),
           ],
-        );
-        
-        return {
-          'fileId': uploadedFile.$id,
-          'fileName': fileName,
-          'mimeType': mimeType,
-          'size': file.size,
-        };
+          onProgress: (progress) {
+            // We're ignoring the real progress and using our custom progress instead
+            print("Mobile upload actual progress: ${progress.progress * 100}%");
+          },
+        ).then((uploadedFile) {
+          // Cancel custom progress timer if it's still running
+          customProgressTimer?.cancel();
+          
+          // Update with completed state (100%)
+          if (onProgressUpdate != null) {
+            onProgressUpdate(1.0, "Complete", true);
+          }
+          completer.complete(fileInfo);
+        }).catchError((error) {
+          // Cancel custom progress timer if it's still running
+          customProgressTimer?.cancel();
+          
+          print('Error uploading file: $error');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: AppTheme.errorColor),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text('Error uploading file: ${error.toString()}')),
+                ],
+              ),
+              backgroundColor: AppTheme.secondaryBackgroundColor,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          completer.completeError(error);
+        });
+      }
+      
+      // Wait for upload to complete and return final file info
+      try {
+        await completer.future;
+        return fileInfo;
+      } catch (e) {
+        // Error already handled in catchError above
+        return null;
       }
     } catch (e) {
-      print('Error uploading file: $e');
+      print('Error selecting file: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error uploading file: ${e.toString()}'),
-          backgroundColor: Colors.red,
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: AppTheme.errorColor),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Error uploading file: ${e.toString()}')),
+            ],
+          ),
+          backgroundColor: AppTheme.secondaryBackgroundColor,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
         ),
       );
       return null;
+    }
+  }
+  
+  // Helper method to update progress (kept for compatibility but not used for custom steps)
+  void _updateProgress(
+    double progress, 
+    DateTime startTime, 
+    Function(double progress, String timeRemaining, bool isComplete)? onProgressUpdate,
+    [double lastReportedProgress = 0.0, 
+    DateTime? lastUpdateTime]
+  ) {
+    if (onProgressUpdate == null) return;
+    
+    // Handle invalid progress values
+    if (progress.isNaN || progress.isInfinite || progress < 0) {
+      progress = 0.0;
+    }
+    
+    // Ensure progress is between 0 and 1
+    progress = progress.clamp(0.0, 1.0);
+    
+    // Throttle updates for smoother visual progress
+    // Don't update too frequently, and don't jump too much
+    final now = DateTime.now();
+    final lastTime = lastUpdateTime ?? startTime;
+    final timeSinceLastUpdate = now.difference(lastTime).inMilliseconds;
+    
+    // If progress jumped too quickly, throttle it
+    if (progress > lastReportedProgress + 0.2 && progress < 0.95 && timeSinceLastUpdate < 500) {
+      // Gradual increase instead of jumping
+      progress = lastReportedProgress + 0.05;
+    }
+    
+    // For final completion, don't throttle to ensure we reach 100%
+    if (progress >= 0.95) {
+      progress = 0.99; // Hold at 99% until explicitly marked complete
+    }
+    
+    String estimatedTimeRemaining = "Calculating...";
+    
+    // Calculate estimated time remaining
+    if (progress > 0.01) {  // Only start showing time after 1% progress
+      final elapsedSeconds = DateTime.now().difference(startTime).inSeconds;
+      if (elapsedSeconds > 0) {
+        final estimatedTotalSeconds = elapsedSeconds / progress;
+        final remainingSeconds = (estimatedTotalSeconds - elapsedSeconds).round();
+        
+        if (remainingSeconds > 60) {
+          final minutes = (remainingSeconds / 60).floor();
+          final seconds = remainingSeconds % 60;
+          estimatedTimeRemaining = '$minutes min ${seconds.toString().padLeft(2, '0')} sec';
+        } else {
+          estimatedTimeRemaining = '$remainingSeconds sec';
+        }
+        
+        // When almost complete, show "Finishing..." message
+        if (progress > 0.95) {
+          estimatedTimeRemaining = "Finishing...";
+        }
+      }
+    }
+    
+    print('Progress update: ${(progress * 100).toStringAsFixed(1)}%, Time remaining: $estimatedTimeRemaining');
+    onProgressUpdate(progress, estimatedTimeRemaining, false);
+  }
+  
+  // Helper method to format file size
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) {
+      return '$bytes B';
+    } else if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    } else if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } else {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    }
+  }
+  
+  // Helper method to get icon for file type
+  IconData getIconForFileType(String fileName) {
+    if (isImageFile(fileName)) {
+      return Icons.image;
+    } else if (isVideoFile(fileName)) {
+      return Icons.video_file;
+    } else if (isPdfFile(fileName)) {
+      return Icons.picture_as_pdf;
+    } else if (isZipFile(fileName)) {
+      return Icons.archive;
+    } else {
+      return Icons.insert_drive_file;
     }
   }
   

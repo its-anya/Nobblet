@@ -168,7 +168,7 @@ class ChatService {
   }
 
   // Upload file and send message
-  Future<void> uploadFileAndSendMessage({
+  Future<Message?> uploadFileAndSendMessage({
     required BuildContext context,
     required String text,
     required bool isPublic,
@@ -177,55 +177,120 @@ class ChatService {
     String? replyToText,
     String? replyToSenderName,
     List<String>? allowedExtensions,
+    Function(Message, double, String, bool)? onProgressUpdate,
   }) async {
+    // Create temporary placeholder message with progress bar
+    final user = currentUser;
+    if (user == null) return null;
+    
     try {
-      // Show uploading indicator
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Uploading file...')),
-      );
-      
-      // Upload file to Appwrite
-      final fileInfo = await _appwriteService.uploadFile(
-        context: context,
-        allowedExtensions: allowedExtensions,
-      );
-      
-      if (fileInfo == null) {
-        // User cancelled or upload failed
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        return;
-      }
-      
-      // Send message with file attachment
-      await sendMessage(
-        text: text.isEmpty ? 'Shared a file' : text,
+      // First create a temporary local message for the UI
+      final tempMessageId = FirebaseFirestore.instance.collection('messages').doc().id;
+      final tempMessage = Message(
+        id: tempMessageId,
+        senderId: user.uid,
+        senderName: user.displayName ?? 'Unknown',
+        senderAvatar: user.photoURL ?? '',
+        text: text.isEmpty ? 'Uploading file...' : text,
+        timestamp: DateTime.now(),
         isPublic: isPublic,
         receiverId: receiverId,
         replyToMessageId: replyToMessageId,
         replyToText: replyToText,
         replyToSenderName: replyToSenderName,
+        isUploading: true,
+        uploadProgress: 0.0,
+      );
+      
+      // Create a variable to store file info
+      Map<String, dynamic>? fileInfo;
+      
+      // Start the file upload process (don't show snackbar anymore)
+      fileInfo = await _appwriteService.uploadFile(
+        context: context,
+        allowedExtensions: allowedExtensions,
+        onProgressUpdate: (progress, timeRemaining, isComplete) {
+          // Update the temp message with progress
+          if (onProgressUpdate != null) {
+            // Create copy of current fileInfo to avoid null issues
+            Map<String, dynamic> currentFileInfo = {
+              ...fileInfo ?? {},
+              'uploadProgress': progress,
+              'fileId': fileInfo?['fileId'] ?? '',
+              'fileName': fileInfo?['fileName'] ?? 'File',
+              'mimeType': fileInfo?['mimeType'] ?? '',
+              'size': fileInfo?['size'] ?? 0,
+              'formattedSize': fileInfo?['formattedSize'] ?? '0 B',
+            };
+            
+            // Create updated message with current progress
+            final updatedMessage = tempMessage.copyWith(
+              uploadProgress: progress,
+              fileId: currentFileInfo['fileId'],
+              fileName: currentFileInfo['fileName'],
+              mimeType: currentFileInfo['mimeType'],
+              fileSize: currentFileInfo['size'],
+              formattedFileSize: currentFileInfo['formattedSize'],
+            );
+            
+            // Pass update to callback
+            print("Chat service progress update: ${(progress * 100).toStringAsFixed(1)}%");
+            onProgressUpdate(updatedMessage, progress, timeRemaining, isComplete);
+          }
+        },
+      );
+      
+      if (fileInfo == null) {
+        // User cancelled or upload failed
+        return null;
+      }
+      
+      // Send the actual message once upload is complete
+      final messageData = {
+        'senderId': user.uid,
+        'senderName': user.displayName ?? 'Unknown',
+        'senderAvatar': user.photoURL ?? '',
+        'text': text.isEmpty ? 'Shared a file' : text,
+        'timestamp': Timestamp.now(),
+        'isPublic': isPublic,
+        'receiverId': receiverId,
+        'replyToMessageId': replyToMessageId,
+        'replyToText': replyToText,
+        'replyToSenderName': replyToSenderName,
+        'fileId': fileInfo['fileId'],
+        'fileName': fileInfo['fileName'],
+        'mimeType': fileInfo['mimeType'],
+        'reactions': {},
+      };
+      
+      // Add participants array for private messages for querying
+      if (!isPublic && receiverId != null) {
+        messageData['participants'] = [user.uid, receiverId];
+      }
+
+      // Send to Firestore
+      await _messagesCollection.add(messageData);
+      
+      // Return final message for UI updates
+      return tempMessage.copyWith(
+        isUploading: false,
+        uploadProgress: 1.0,
         fileId: fileInfo['fileId'],
         fileName: fileInfo['fileName'],
         mimeType: fileInfo['mimeType'],
-      );
-      
-      // Success message
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('File uploaded and shared successfully'),
-          backgroundColor: Colors.green,
-        ),
+        fileSize: fileInfo['size'],
+        formattedFileSize: fileInfo['formattedSize'],
+        text: text.isEmpty ? 'Shared a file' : text,
       );
     } catch (e) {
       // Error handling
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error sharing file: ${e.toString()}'),
           backgroundColor: Colors.red,
         ),
       );
+      return null;
     }
   }
 
