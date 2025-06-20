@@ -1,105 +1,127 @@
-# Nobblet - Chat Application with File Sharing
+# Nobblet - Modern Chat Application
 
-Nobblet is a feature-rich chat application with support for public and private messaging, along with file sharing capabilities.
+Nobblet is a feature-rich, cross-platform chat application built with Flutter and Firebase, offering a sleek, futuristic interface with neon accents for an engaging user experience. The app supports both web and mobile platforms, providing seamless communication through public and private messaging.
 
 ## Features
 
-- User authentication with Firebase (email/password and Google Sign-In)
-- Public and private messaging
-- File sharing (images, videos, PDFs and other documents)
-- Message reactions
-- Reply to messages
-- User search and profile management
+- **Authentication**
+  - Email/password login and registration
+  - Username-based login
+  - Google Sign-In integration
+  - Username setup for new users
+  - Password reset functionality
+
+- **Messaging**
+  - Public chat rooms
+  - Private one-on-one conversations
+  - Message reactions
+  - Reply to specific messages
+  - File sharing (images, videos, PDFs, archives)
+
+- **User Management**
+  - User profiles with avatars
+  - Online status indicators
+  - User search functionality
+  - Admin panel for user management
+
+- **Notifications**
+  - Push notifications (Firebase Messaging)
+  - Platform-specific notification handling (web, iOS, Android)
+
+- **UI/UX**
+  - Modern dark theme with neon accents
+  - Responsive design for multiple devices
+  - Sleek animations and transitions
+  - Message bubbles with file previews
 
 ## Technologies Used
 
-### Firebase
-- Authentication
-- Firestore Database
-- Firebase Messaging
+### Frontend
+- **Flutter** - Cross-platform UI framework
+- **Dart** - Programming language
 
-### Appwrite
-- Storage (for file sharing)
+### Backend & Services
+- **Firebase**
+  - Authentication (email/password, Google Sign-In)
+  - Firestore (real-time database)
+  - Firebase Messaging (push notifications)
+
+- **Appwrite**
+  - Storage (file uploads and sharing)
+  - Cross-platform file management
+
+### Additional Packages
+- `google_sign_in` - Google authentication
+- `shared_preferences` - Local storage
+- `flutter_local_notifications` - Local notification management
+- `file_picker` - File selection
+- `dio` - HTTP client for advanced networking
+
+## Project Structure
+
+```
+lib/
+├── main.dart                  # Entry point with Firebase initialization
+├── models/
+│   ├── message.dart           # Message model with file support
+│   └── chat_user.dart         # User model with roles and status
+├── screens/
+│   ├── login_screen.dart      # Authentication screens
+│   ├── signup_screen.dart
+│   ├── username_setup_screen.dart
+│   ├── chat_screen.dart       # Main chat interface
+│   ├── profile_screen.dart    # User profile management
+│   ├── user_search_screen.dart # User discovery
+│   └── admin_panel_screen.dart # Admin controls
+├── services/
+│   ├── chat_service.dart      # Firebase chat operations
+│   ├── appwrite_service.dart  # File storage operations
+│   └── cors_proxy.dart        # Web CORS handling
+└── theme/
+    └── app_theme.dart         # App styling and themes
+```
 
 ## File Sharing Implementation
 
-This project uses Appwrite Storage for handling file uploads and sharing. The integration allows users to:
+This project uses Appwrite Storage for handling file uploads and sharing, allowing users to:
 
-- Upload files (images, videos, PDFs, and other document formats)
-- View files directly in the chat
-- Download shared files
-
-### Setup Instructions
-
-1. Create an Appwrite account at [appwrite.io](https://appwrite.io/)
-2. Create a project (the current project ID is `683932070023292fdf26`)
-3. Create a storage bucket (the current bucket ID is `684d55f9000259403eb0`)
-4. Configure the storage bucket permissions to allow file uploads and downloads
-5. Update the AppwriteService class with your project ID and bucket ID if needed
+- Upload files (images, videos, PDFs, and various document formats)
+- View files directly in the chat with appropriate previews
+- Download shared files securely
 
 ### File Types Supported
 
 - Images (jpg, jpeg, png, gif, webp)
 - Videos (mp4, mov, avi, webm)
 - Documents (pdf)
-- Other file types can be added by modifying the allowed extensions
+- Archives (zip, rar, tar, 7z, gz)
 
-## Usage
+## Cross-Platform Support
 
-1. Sign up or log in to the app
-2. Navigate to public chat or start a private conversation
-3. To share a file:
-   - Click the attachment icon in the message composer
-   - Select a file from your device
-   - Optionally add a message
-   - Send the file
-
-## Implementation Details
-
-The file sharing system is implemented using several components:
-
-- `AppwriteService` - Handles file uploads, downloads, and management with the Appwrite API
-- `FilePreviewWidget` - Renders different file types appropriately in the chat
-- `MessageBubble` - Displays messages including file attachments
-- Enhanced `Message` model to include file metadata
-
-## Project Structure
-
-```
-lib/
-├── main.dart                  # Entry point
-├── models/
-│   ├── message.dart           # Message model with file support
-│   └── chat_user.dart         # User model
-├── screens/
-│   ├── chat_screen.dart       # Main chat interface
-│   └── ...
-├── services/
-│   ├── chat_service.dart      # Firebase chat operations
-│   ├── appwrite_service.dart  # Appwrite file storage operations
-│   └── ...
-└── widgets/
-    ├── file_preview_widget.dart # Renders different file types
-    ├── message_bubble.dart    # Message UI component
-    └── ...
-```
-
-## Description
-
-Nobblet is a modern chatting application built with Flutter and Firebase, offering a sleek and intuitive messaging experience.
+- **Web**: Full support with optimized Firebase Web configuration
+- **Mobile (iOS/Android)**: Native integration with platform-specific notifications
+- **CORS Handling**: Custom proxy for seamless web file operations
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+### Prerequisites
+- Flutter SDK
+- Firebase project with Auth and Firestore enabled
+- Appwrite account and project
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Setup Instructions
+1. Clone the repository
+2. Run `flutter pub get` to install dependencies
+3. Configure Firebase:
+   - Create a Firebase project
+   - Enable Authentication (Email/Password and Google Sign-In)
+   - Set up Firestore Database
+   - Configure Firebase Messaging
+4. Configure Appwrite:
+   - Create an Appwrite project
+   - Set up a storage bucket with appropriate permissions
+5. Update configuration files with your Firebase and Appwrite credentials
+6. Run the app with `flutter run`
 
 ## License
 
