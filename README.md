@@ -153,3 +153,5 @@ Unauthorized use, reproduction, or distribution of this software or its name is
 strictly prohibited and may result in legal action.
 
 See the [LICENSE](LICENSE) file for details.
+
+<img src="logo.png" alt="logo"/>
