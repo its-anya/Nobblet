@@ -2,6 +2,16 @@
 
 Nobblet is a feature-rich, cross-platform chat application built with Flutter and Firebase, offering a sleek, futuristic interface with neon accents for an engaging user experience. The app supports both web and mobile platforms, providing seamless communication through public and private messaging.
 
+## Research Paper
+
+For a detailed technical analysis of Nobblet's architecture, implementation, and performance, please read our [research paper](./Nobblet_Research_Paper.md). The paper covers:
+
+- Hybrid architecture design combining Flutter, Firebase, and Appwrite
+- Cross-platform file sharing implementation
+- Performance benchmarks across different platforms and network conditions
+- Security considerations and implementation details
+- Future development roadmap
+
 ## Features
 
 - **Authentication**
