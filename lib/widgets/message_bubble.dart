@@ -306,6 +306,14 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     } else {
+      // Determine if this is an image or video based on mime type
+      final isImage = message.mimeType?.startsWith('image/') ?? false;
+      final isVideo = message.mimeType?.startsWith('video/') ?? false;
+      
+      // Calculate appropriate width and height constraints
+      final maxWidth = MediaQuery.of(context).size.width * 0.6;
+      final maxHeight = isImage || isVideo ? 250.0 : 180.0;
+      
       // Show the regular file preview for completed uploads
       return Padding(
         padding: const EdgeInsets.only(bottom: 4),
@@ -313,6 +321,9 @@ class MessageBubble extends StatelessWidget {
           fileId: message.fileId!,
           fileName: message.fileName!,
           mimeType: message.mimeType ?? 'application/octet-stream',
+          width: maxWidth,
+          height: maxHeight,
+          showControls: true,
         ),
       );
     }

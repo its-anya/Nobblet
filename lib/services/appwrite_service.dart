@@ -371,6 +371,9 @@ class AppwriteService {
     // Add web-specific headers
     if (kIsWeb) {
       headers['X-Appwrite-Web-Session'] = 'true';
+      headers['Access-Control-Allow-Origin'] = '*';
+      headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     }
     
     return headers;
@@ -404,18 +407,16 @@ class AppwriteService {
     // Add timestamp for cache busting
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     
-    // Use download URL instead of view to avoid CORS issues
+    // For web platform, always use the download URL to avoid CORS issues
     if (kIsWeb) {
-      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download?project=$projectId&t=$timestamp';
+      final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/download?project=$projectId&t=$timestamp';
+      print('Web platform - Generated view URL: $url');
+      return url;
     }
     
-    if (!kIsWeb) {
-      return '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view?t=$timestamp';
-    }
-    
-    // For web, include session token in URL
-    final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view?project=$projectId&t=$timestamp';
-    print('Generated view URL: $url'); // Debug log
+    // For mobile platforms
+    final url = '$_endpoint/storage/buckets/$_bucketId/files/$fileId/view?t=$timestamp';
+    print('Mobile platform - Generated view URL: $url');
     return url;
   }
   
