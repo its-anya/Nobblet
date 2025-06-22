@@ -393,13 +393,23 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
             letterSpacing: 0.5,
           ),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          splashRadius: 24,
-          onPressed: () {
-            _scaffoldKey.currentState?.openDrawer();
-          },
-        ),
+        leading: (_tabController.index == 1 && _selectedUser != null)
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              splashRadius: 24,
+              onPressed: () {
+                setState(() {
+                  _selectedUser = null;
+                });
+              },
+            )
+          : IconButton(
+              icon: const Icon(Icons.menu),
+              splashRadius: 24,
+              onPressed: () {
+                _scaffoldKey.currentState?.openDrawer();
+              },
+            ),
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -492,7 +502,92 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
                 RepaintBoundary(
                   child: _selectedUser == null
                       ? _buildContactsList()
-                      : _buildMessageList(isPublic: false, userId: _selectedUser!.id),
+                      : Column(
+                          children: [
+                            // User info header with better visibility
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: AppTheme.secondaryColor,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 20,
+                                    backgroundImage: _selectedUser!.photoURL != null
+                                        ? NetworkImage(_selectedUser!.photoURL!)
+                                        : null,
+                                    backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                                    child: _selectedUser!.photoURL == null
+                                        ? Text(
+                                            _selectedUser!.username[0].toUpperCase(),
+                                            style: TextStyle(color: theme.colorScheme.primary),
+                                          )
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _selectedUser!.username,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color: _selectedUser!.isOnline ? Colors.green : Colors.grey,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              _selectedUser!.isOnline ? 'Online' : 'Last seen recently',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: _selectedUser!.isOnline ? Colors.green : Colors.grey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Back button
+                                  IconButton(
+                                    icon: const Icon(Icons.arrow_back),
+                                    splashRadius: 20,
+                                    color: AppTheme.accentColor,
+                                    onPressed: () {
+                                      setState(() {
+                                        _selectedUser = null;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Messages list
+                            Expanded(
+                              child: _buildMessageList(isPublic: false, userId: _selectedUser!.id),
+                            ),
+                          ],
+                        ),
                 ),
               ],
             ),
