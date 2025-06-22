@@ -74,6 +74,7 @@ dependencies:
   dio: ^5.8.0+1
   permission_handler: ^11.0.1
   app_settings: ^5.1.1
+  shimmer: ^3.0.0
 
 dev_dependencies:
   flutter_test:

@@ -22,7 +22,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
+class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final ChatService _chatService = ChatService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _messageController = TextEditingController();
@@ -39,11 +39,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Message? _replyToMessage;
   int _selectedTab = 0;
   
-  // Map to store uploading messages
-  final Map<String, Message> _uploadingMessages = {};
+  // Use ValueNotifier to avoid rebuilding the entire widget tree
+  final ValueNotifier<Map<String, Message>> _uploadingMessagesNotifier = ValueNotifier({});
+  
+  // Cached stream for public messages to prevent rebuilds
+  Stream<List<Message>>? _cachedPublicMessagesStream;
+  
+  // Map to store private message streams by user ID
+  final Map<String, Stream<List<Message>>> _privateMessageStreams = {};
 
   // Default reaction emojis
   final List<String> _defaultReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
+
+  // Keep this widget alive when navigating to prevent rebuilds
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -51,23 +61,28 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChange);
     _chatService.saveUserData(); // Update user data
-    _loadRecentContacts();
-    _checkBannedStatus();
+    
+    // Load data in the background without triggering UI rebuilds
+    Future.microtask(() {
+      _loadRecentContacts();
+      _checkBannedStatus();
+    });
     
     // Listen for text changes to enable/disable send button
     _messageController.addListener(_updateSendButtonState);
-    
-    // We're going to skip connectivity checks for now as they're causing issues
-    // and aren't essential for our current task
   }
 
   void _handleTabChange() {
-    // Force update UI when tab changes to ensure input visibility
-    setState(() {});
-    
-    if (_tabController.index == 1) {
-      // When switching to private chat tab, load recent contacts
-      _loadRecentContacts();
+    // Only update UI if tab index actually changed
+    if (_selectedTab != _tabController.index) {
+      setState(() {
+        _selectedTab = _tabController.index;
+      });
+      
+      if (_tabController.index == 1) {
+        // When switching to private chat tab, load recent contacts
+        _loadRecentContacts();
+      }
     }
   }
 
@@ -114,7 +129,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _searchController.dispose();
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
-    // No need to cancel the subscription since we're not using it
+    _uploadingMessagesNotifier.dispose();
     super.dispose();
   }
 
@@ -134,17 +149,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     try {
       final results = await _chatService.searchUsers(_searchController.text.trim());
-      setState(() {
-        _searchResults = results;
-        _isSearching = false;
-      });
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _isSearching = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isSearching = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Search error: $e')),
-      );
+      if (mounted) {
+        setState(() {
+          _isSearching = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Search error: $e')),
+        );
+      }
     }
   }
 
@@ -152,6 +171,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
+    
+    // Clear input field immediately for better UX
+    _messageController.clear();
+    
+    // Clear reply state after sending
+    final replyMessage = _replyToMessage;
+    setState(() {
+      _replyToMessage = null;
+      _canSendMessage = false;
+    });
 
     try {
       if (_tabController.index == 0) {
@@ -159,9 +188,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         await _chatService.sendMessage(
           text: text,
           isPublic: true,
-          replyToMessageId: _replyToMessage?.id,
-          replyToText: _replyToMessage?.text,
-          replyToSenderName: _replyToMessage?.senderName,
+          replyToMessageId: replyMessage?.id,
+          replyToText: replyMessage?.text,
+          replyToSenderName: replyMessage?.senderName,
         );
       } else if (_selectedUser != null) {
         // Send private message
@@ -169,17 +198,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           text: text,
           isPublic: false,
           receiverId: _selectedUser!.id,
-          replyToMessageId: _replyToMessage?.id,
-          replyToText: _replyToMessage?.text,
-          replyToSenderName: _replyToMessage?.senderName,
+          replyToMessageId: replyMessage?.id,
+          replyToText: replyMessage?.text,
+          replyToSenderName: replyMessage?.senderName,
         );
       }
-      _messageController.clear();
-      // Clear reply state after sending
-      setState(() {
-        _replyToMessage = null;
-        _canSendMessage = false;
-      });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error sending message: $e')),
@@ -192,25 +215,25 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     // Progress should always be valid now with our custom implementation
     print("File upload progress: ${message.fileName ?? 'File'} - ${(progress * 100).toStringAsFixed(0)}% - $timeRemaining");
     
-    // Store or update the message in the uploading messages map
-    if (mounted) {
-      setState(() {
-        if (isComplete) {
-          // Remove from uploading messages once complete
-          print("Upload complete for: ${message.fileName ?? 'File'}");
-          _uploadingMessages.remove(message.id);
-        } else {
-          // Update the message with new progress
-          final updatedMessage = message.copyWith(
-            uploadProgress: progress,
-            // We need to ensure timeRemaining is reflected in the UI
-            formattedFileSize: message.formattedFileSize ?? '0 B',
-          );
-          
-          _uploadingMessages[message.id] = updatedMessage;
-        }
-      });
+    // Update the uploading messages map using ValueNotifier
+    final currentMessages = Map<String, Message>.from(_uploadingMessagesNotifier.value);
+    
+    if (isComplete) {
+      // Remove from uploading messages once complete
+      print("Upload complete for: ${message.fileName ?? 'File'}");
+      currentMessages.remove(message.id);
+    } else {
+      // Update the message with new progress
+      final updatedMessage = message.copyWith(
+        uploadProgress: progress,
+        formattedFileSize: message.formattedFileSize ?? '0 B',
+      );
+      
+      currentMessages[message.id] = updatedMessage;
     }
+    
+    // Update the notifier value
+    _uploadingMessagesNotifier.value = currentMessages;
   }
 
   // Share a file
@@ -253,7 +276,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           
           // Add initial message to uploading map if it's still uploading
           if (tempMessage?.isUploading ?? false) {
-            _uploadingMessages[tempMessage!.id] = tempMessage;
+            _uploadingMessagesNotifier.value[tempMessage!.id] = tempMessage;
           }
         });
       }
@@ -335,6 +358,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
     final theme = Theme.of(context);
     
     // Always show input in PUBLIC tab or when a user is selected in CHATS tab
@@ -382,22 +407,27 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             onPressed: () async {
               final userId = await Navigator.push<String>(
                 context,
-                MaterialPageRoute(builder: (context) => const UserSearchScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const UserSearchScreen(),
+                  maintainState: true,
+                ),
               );
               
               if (userId != null && mounted) {
                 try {
                   final users = await _chatService.searchUsers(userId);
-                  if (users.isNotEmpty) {
+                  if (users.isNotEmpty && mounted) {
                     setState(() {
                       _selectedUser = users.first;
-                      _tabController.index = 1; // Switch to private chat tab
+                      _tabController.animateTo(1); // Switch to private chat tab with animation
                     });
                   }
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error finding user: $e')),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error finding user: $e')),
+                    );
+                  }
                 }
               }
             },
@@ -408,7 +438,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const ProfileScreen(),
+                  maintainState: true,
+                ),
               );
             },
           ),
@@ -448,14 +481,19 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           Expanded(
             child: TabBarView(
               controller: _tabController,
+              physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                // Public Chat
-                _buildPublicChatView(),
+                // Public Chat - Use RepaintBoundary to prevent unnecessary repaints
+                RepaintBoundary(
+                  child: _buildMessageList(isPublic: true),
+                ),
                 
-                // Private Chats
-                _selectedUser == null
-                    ? _buildContactsList()
-                    : _buildPrivateChatView(),
+                // Private Chats - Use RepaintBoundary to prevent unnecessary repaints
+                RepaintBoundary(
+                  child: _selectedUser == null
+                      ? _buildContactsList()
+                      : _buildMessageList(isPublic: false, userId: _selectedUser!.id),
+                ),
               ],
             ),
           ),
@@ -862,122 +900,160 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               );
   }
   
-  Widget _buildMessageList({required bool isPublic, String? userId}) {
+  // Get stream for messages (with caching to prevent rebuilds)
+  Stream<List<Message>> _getMessagesStream(bool isPublic, String? userId) {
+    if (isPublic) {
+      // Use cached stream for public messages if available
+      _cachedPublicMessagesStream ??= _chatService.getPublicMessages();
+      return _cachedPublicMessagesStream!;
+    } else if (userId != null) {
+      // Use cached stream for private messages if available
+      if (!_privateMessageStreams.containsKey(userId)) {
+        _privateMessageStreams[userId] = _chatService.getPrivateMessages(userId);
+      }
+      return _privateMessageStreams[userId]!;
+    }
+    
+    // Fallback to empty stream
+    return Stream.value([]);
+  }
+
+  // Build message list with optimized rendering
+  Widget _buildMessageList({bool isPublic = true, String? userId}) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
     return StreamBuilder<List<Message>>(
-      stream: isPublic
-          ? _chatService.getPublicMessages()
-          : (userId != null ? _chatService.getPrivateMessages(userId) : null),
+      stream: _getMessagesStream(isPublic, userId),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && _uploadingMessages.isEmpty) {
+        if (snapshot.connectionState == ConnectionState.waiting && _uploadingMessagesNotifier.value.isEmpty) {
           return const Center(
             child: CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
             ),
           );
         }
-
+        
         if (snapshot.hasError) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.error_outline, color: AppTheme.errorColor, size: 40),
-                const SizedBox(height: 8),
+                const Icon(Icons.error_outline, color: AppTheme.errorColor, size: 48),
+                const SizedBox(height: 16),
                 Text(
-                  'Error loading messages',
-                  style: TextStyle(color: AppTheme.errorColor),
+                  'Error loading messages: ${snapshot.error}',
+                  style: const TextStyle(color: AppTheme.errorColor),
+                  textAlign: TextAlign.center,
                 ),
-                TextButton(
-                  onPressed: () => setState(() {}),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      // Force refresh the streams
+                      if (isPublic) {
+                        _cachedPublicMessagesStream = null;
+                      } else if (userId != null) {
+                        _privateMessageStreams.remove(userId);
+                      }
+                    });
+                  },
                   child: const Text('Retry'),
                 ),
               ],
             ),
           );
         }
-
-        // Get messages from the stream
+        
         List<Message> messages = snapshot.data ?? [];
         
-        // Add uploading messages
-        if (_uploadingMessages.isNotEmpty) {
-          // Only add relevant uploading messages (public or private to this user)
-          final uploadingMsgs = _uploadingMessages.values.where((msg) {
-            if (isPublic) return msg.isPublic;
-            return !msg.isPublic && (msg.receiverId == userId || msg.senderId == userId);
-          }).toList();
-          
-          // Add at the beginning (newest messages)
-          messages = [...uploadingMsgs, ...messages];
-        }
-        
-        if (messages.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isPublic ? Icons.forum_outlined : Icons.chat_bubble_outline,
-                  color: AppTheme.secondaryTextColor.withOpacity(0.5),
-                  size: 64,
-                ),
-                const SizedBox(height: 16),
-                Text(
-              isPublic
-                  ? 'No messages in public chat yet. Say hello!'
-                  : 'No messages with this user yet. Say hello!',
-                  style: TextStyle(
-                    color: AppTheme.secondaryTextColor,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return FutureBuilder<bool>(
-          future: _chatService.isCurrentUserAdmin(),
-          builder: (context, adminSnapshot) {
-            final isAdmin = adminSnapshot.data ?? false;
-            final currentUserId = _chatService.currentUser?.uid;
+        // Use ValueListenableBuilder for uploading messages to prevent full widget rebuilds
+        return ValueListenableBuilder<Map<String, Message>>(
+          valueListenable: _uploadingMessagesNotifier,
+          builder: (context, uploadingMessages, child) {
+            final List<Message> allMessages = [...messages];
             
-            return ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              reverse: true,
-              itemCount: messages.length,
-              itemBuilder: (context, index) {
-                final message = messages[index];
-                final isMe = message.senderId == currentUserId;
-                
-                return Dismissible(
-                  key: Key('message_${message.id}_${DateTime.now().millisecondsSinceEpoch}'),
-                  direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
-                  background: _buildSwipeReplyBackground(isMe),
-                  confirmDismiss: (_) async {
-                    _setReplyMessage(message);
-                    return false; // Don't actually dismiss the item
-                  },
-                  child: GestureDetector(
-                    onLongPress: () {
-                      if (!message.isUploading) {  // Don't show options for uploading messages
-                        _showMessageOptions(message, isAdmin);
-                      }
-                    },
-                    child: MessageBubble(
-                      message: message,
-                      isMe: isMe,
-                      isAdmin: isAdmin,
-                      onReply: (msg) => _setReplyMessage(msg),
-                      onReaction: (msg, emoji) => _handleReaction(msg, emoji),
-                      onDelete: (isMe || isAdmin) && !message.isUploading ? (msg) => _deleteMessage(msg.id, isAdmin) : null,
-                      onFileProgress: message.isUploading ? _handleFileUploadProgress : null,
+            // Add relevant uploading messages
+            if (uploadingMessages.isNotEmpty) {
+              final uploadingMsgs = uploadingMessages.values.where((msg) {
+                if (isPublic) return msg.isPublic;
+                return !msg.isPublic && (msg.receiverId == userId || msg.senderId == userId);
+              }).toList();
+              
+              // Add at the beginning (newest messages)
+              allMessages.insertAll(0, uploadingMsgs);
+            }
+            
+            if (allMessages.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isPublic ? Icons.forum_outlined : Icons.chat_bubble_outline,
+                      color: AppTheme.secondaryTextColor.withOpacity(0.5),
+                      size: 64,
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    Text(
+                      isPublic
+                          ? 'No messages in public chat yet. Say hello!'
+                          : 'No messages with this user yet. Say hello!',
+                      style: TextStyle(
+                        color: AppTheme.secondaryTextColor,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return FutureBuilder<bool>(
+              future: _chatService.isCurrentUserAdmin(),
+              builder: (context, adminSnapshot) {
+                final isAdmin = adminSnapshot.data ?? false;
+                final currentUserId = _chatService.currentUser?.uid;
+                
+                return ListView.builder(
+                  key: PageStorageKey<String>(isPublic ? 'public_messages' : 'private_$userId'),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  reverse: true,
+                  itemCount: allMessages.length,
+                  itemBuilder: (context, index) {
+                    final message = allMessages[index];
+                    final isMe = message.senderId == currentUserId;
+                    
+                    return Dismissible(
+                      key: Key('message_${message.id}_${DateTime.now().millisecondsSinceEpoch}'),
+                      direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
+                      background: _buildSwipeReplyBackground(isMe),
+                      confirmDismiss: (_) async {
+                        _setReplyMessage(message);
+                        return false; // Don't actually dismiss the item
+                      },
+                      child: GestureDetector(
+                        onLongPress: () {
+                          if (!message.isUploading) {  // Don't show options for uploading messages
+                            _showMessageOptions(message, isAdmin);
+                          }
+                        },
+                        child: MessageBubble(
+                          key: ValueKey(message.id),
+                          message: message,
+                          isMe: isMe,
+                          isAdmin: isAdmin,
+                          onReply: (msg) => _setReplyMessage(msg),
+                          onReaction: (msg, emoji) => _handleReaction(msg, emoji),
+                          onDelete: (isMe || isAdmin) && !message.isUploading ? (msg) => _deleteMessage(msg.id, isAdmin) : null,
+                          onFileProgress: message.isUploading ? _handleFileUploadProgress : null,
+                        ),
+                      ),
+                    );
+                  },
                 );
-              },
+              }
             );
-          }
+          },
         );
       },
     );
@@ -1148,23 +1224,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   Widget _buildMessageInput() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: AppTheme.secondaryBackgroundColor,
+        color: AppTheme.primaryColor,
         boxShadow: [
           BoxShadow(
-            color: AppTheme.accentColor.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 6,
-            offset: const Offset(0, -3),
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
           ),
         ],
-        border: Border(
-          top: BorderSide(
-            color: AppTheme.accentColor.withOpacity(0.3),
-            width: 1,
-          ),
-        ),
       ),
       child: Row(
         children: [
@@ -1174,29 +1243,60 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               _showEmojiPicker ? Icons.keyboard : Icons.emoji_emotions_outlined,
               color: AppTheme.accentColor,
             ),
-            splashRadius: 20,
             onPressed: () {
               setState(() {
                 _showEmojiPicker = !_showEmojiPicker;
               });
+              if (!_showEmojiPicker) {
+                FocusScope.of(context).requestFocus(FocusNode());
+              }
             },
-          ),
-              
-          // Attachment button
-          IconButton(
-            icon: const Icon(
-              Icons.attach_file_rounded,
-              color: AppTheme.accentColor,
-            ),
             splashRadius: 20,
-            onPressed: _shareFile,
           ),
           
-          // Text input field
+          // Attachment button
+          IconButton(
+            icon: const Icon(Icons.attach_file, color: AppTheme.accentColor),
+            onPressed: () async {
+              final tempMessage = await _chatService.uploadFileAndSendMessage(
+                context: context,
+                text: _messageController.text.trim(),
+                isPublic: _tabController.index == 0,
+                receiverId: _selectedUser?.id,
+                replyToMessageId: _replyToMessage?.id,
+                replyToText: _replyToMessage?.text,
+                replyToSenderName: _replyToMessage?.senderName,
+                onProgressUpdate: _handleFileUploadProgress,
+              );
+              
+              if (tempMessage != null) {
+                // Clear message input if upload started
+                _messageController.clear();
+                
+                // Clear reply state
+                if (_replyToMessage != null) {
+                  setState(() {
+                    _replyToMessage = null;
+                  });
+                }
+                
+                // Add initial message to uploading map if it's still uploading
+                if (tempMessage.isUploading) {
+                  final currentMessages = Map<String, Message>.from(_uploadingMessagesNotifier.value);
+                  currentMessages[tempMessage.id] = tempMessage;
+                  _uploadingMessagesNotifier.value = currentMessages;
+                }
+              }
+            },
+            splashRadius: 20,
+          ),
+          
+          // Text field
           Expanded(
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(24),
+                color: AppTheme.secondaryColor,
                 boxShadow: [
                   BoxShadow(
                     color: AppTheme.accentColor.withOpacity(0.1),
@@ -1236,6 +1336,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 maxLines: 5,
                 textCapitalization: TextCapitalization.sentences,
                 onChanged: (text) {
+                  // Use the ValueNotifier pattern here to avoid rebuilding the entire widget
                   final canSend = text.trim().isNotEmpty;
                   if (canSend != _canSendMessage) {
                     setState(() {
@@ -1252,35 +1353,35 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: _messageController.text.trim().isEmpty
-                  ? const LinearGradient(
+              gradient: _canSendMessage
+                  ? AppTheme.neonGradient
+                  : const LinearGradient(
                       colors: [Color(0xFF303450), Color(0xFF404461)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                    )
-                  : AppTheme.neonGradient,
-              boxShadow: _messageController.text.trim().isEmpty
-                  ? []
-                  : [
+                    ),
+              boxShadow: _canSendMessage
+                  ? [
                       BoxShadow(
                         color: AppTheme.accentColor.withOpacity(0.4),
                         blurRadius: 8,
                         spreadRadius: 1,
                       )
-                    ],
+                    ]
+                  : [],
             ),
             child: Material(
               type: MaterialType.transparency,
               child: InkWell(
                 borderRadius: BorderRadius.circular(24),
-                onTap: _messageController.text.trim().isEmpty ? null : _sendMessage,
+                onTap: _canSendMessage ? _sendMessage : null,
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   child: Icon(
                     Icons.send_rounded,
-                    color: _messageController.text.trim().isEmpty
-                        ? AppTheme.secondaryTextColor
-                        : AppTheme.lightTextColor,
+                    color: _canSendMessage
+                        ? AppTheme.lightTextColor
+                        : AppTheme.secondaryTextColor,
                     size: 20,
                   ),
                 ),
