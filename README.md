@@ -118,6 +118,7 @@ This project uses Appwrite Storage for handling file uploads and sharing, allowi
 - Flutter SDK
 - Firebase project with Auth and Firestore enabled
 - Appwrite account and project
+- Node.js (for maintenance mode functionality)
 
 ### Setup Instructions
 1. Clone the repository
@@ -132,6 +133,26 @@ This project uses Appwrite Storage for handling file uploads and sharing, allowi
    - Set up a storage bucket with appropriate permissions
 5. Update configuration files with your Firebase and Appwrite credentials
 6. Run the app with `flutter run`
+
+## Maintenance Mode
+
+You can enable maintenance mode when you need to temporarily take down the application for updates or maintenance.
+
+### Enable Maintenance Mode
+```bash
+npm run maintenance:enable
+```
+
+This command will deploy a professionally designed maintenance page to your Firebase hosting, informing users that the site is temporarily down for maintenance.
+
+### Disable Maintenance Mode
+```bash
+npm run maintenance:disable
+```
+
+This command will rebuild your application and restore normal operation.
+
+For more detailed instructions on using maintenance mode, please see the [MAINTENANCE.md](MAINTENANCE.md) guide.
 
 ## License
 
@@ -153,5 +174,6 @@ Unauthorized use, reproduction, or distribution of this software or its name is
 strictly prohibited and may result in legal action.
 
 See the [LICENSE](LICENSE) file for details.
+
 
 <img src="logo.png" alt="logo"/>

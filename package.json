@@ -1,5 +1,12 @@
 {
+  "name": "nobblet",
+  "version": "1.0.0",
+  "description": "Nobblet chat application",
+  "scripts": {
+    "maintenance:enable": "node maintenance-mode.js && firebase deploy --only hosting",
+    "maintenance:disable": "node restore-app.js"
+  },
   "dependencies": {
-    "firebase": "^11.8.1"
+    "fs-extra": "^11.1.1"
   }
 }
