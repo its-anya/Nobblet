@@ -17,7 +17,7 @@ When you need to temporarily disable your application and show a maintenance pag
 2. Run the maintenance mode script:
 
 ```bash
-node maintenance-mode.js
+npm install
 ```
 
 3. Deploy the maintenance page to Firebase:
