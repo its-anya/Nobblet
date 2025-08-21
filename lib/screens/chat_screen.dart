@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_chat_reactions/flutter_chat_reactions.dart';
@@ -331,6 +332,158 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
       );
       
       print('Reaction error details: $e');
+    }
+  }
+
+  // Show who reacted with a specific emoji
+  void _showWhoReacted(Message message, String emoji) async {
+    try {
+      final users = await _chatService.getUsersWhoReacted(message, emoji);
+      final currentUserId = _chatService.currentUser?.uid;
+      final currentUserReacted = currentUserId != null && 
+          message.reactions.containsKey(currentUserId) && 
+          message.reactions[currentUserId] == emoji;
+      
+      if (!mounted) return;
+      
+      showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        isScrollControlled: true,
+        builder: (context) => Container(
+          padding: const EdgeInsets.all(20),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Text(
+                    emoji,
+                    style: const TextStyle(fontSize: 24),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Reacted by ${users.length} ${users.length == 1 ? 'person' : 'people'}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.lightTextColor,
+                      ),
+                    ),
+                  ),
+                  // Remove button if current user reacted
+                  if (currentUserReacted)
+                    IconButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _removeUserReaction(message);
+                      },
+                      icon: const Icon(
+                        Icons.remove_circle,
+                        color: Colors.orange,
+                      ),
+                      tooltip: 'Remove my reaction',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              
+              // Users list
+              if (users.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      'No users found',
+                      style: TextStyle(
+                        color: AppTheme.secondaryTextColor,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: users.map((user) => ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage: user.photoURL != null && user.photoURL!.isNotEmpty
+                        ? NetworkImage(user.photoURL!)
+                        : null,
+                    backgroundColor: AppTheme.accentColor,
+                    child: user.photoURL == null || user.photoURL!.isEmpty
+                        ? Text(
+                            user.username.isNotEmpty ? user.username[0].toUpperCase() : 'U',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : null,
+                  ),
+                  title: Text(
+                    user.username,
+                    style: const TextStyle(
+                      color: AppTheme.lightTextColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: user.email.isNotEmpty && user.email != user.username
+                      ? Text(
+                          user.email,
+                          style: const TextStyle(
+                            color: AppTheme.secondaryTextColor,
+                            fontSize: 14,
+                          ),
+                        )
+                      : null,
+                )).toList(),
+                  ),
+                ),
+              
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading reactions: $e')),
+        );
+      }
+    }
+  }
+
+  // Check if current user has reacted to this message
+  bool _userHasReacted(Message message) {
+    final currentUserId = _chatService.currentUser?.uid;
+    return currentUserId != null && message.reactions.containsKey(currentUserId);
+  }
+
+  // Remove user's reaction from message
+  Future<void> _removeUserReaction(Message message) async {
+    try {
+      await _chatService.removeReaction(messageId: message.id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reaction removed'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error removing reaction: $e')),
+      );
     }
   }
 
@@ -1141,6 +1294,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
                           onReaction: (msg, emoji) => _handleReaction(msg, emoji),
                           onDelete: (isMe || isAdmin) && !message.isUploading ? (msg) => _deleteMessage(msg.id, isAdmin) : null,
                           onFileProgress: message.isUploading ? _handleFileUploadProgress : null,
+                          onReactionClick: (msg, emoji) => _showWhoReacted(msg, emoji),
+                          currentUserId: currentUserId,
                         ),
                       ),
                     );
@@ -1500,12 +1655,33 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: _defaultReactions.map((emoji) {
+                final currentUserId = _chatService.currentUser?.uid;
+                final hasUserReacted = currentUserId != null && 
+                    message.reactions.containsKey(currentUserId) && 
+                    message.reactions[currentUserId] == emoji;
+                
                 return GestureDetector(
                   onTap: () {
                     Navigator.pop(context);
                     _handleReaction(message, emoji);
                   },
-                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: hasUserReacted 
+                        ? BoxDecoration(
+                            color: AppTheme.accentColor.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppTheme.accentColor,
+                              width: 2,
+                            ),
+                          )
+                        : null,
+                    child: Text(
+                      emoji, 
+                      style: const TextStyle(fontSize: 28),
+                    ),
+                  ),
                 );
               }).toList(),
             ),
@@ -1527,8 +1703,26 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
             title: const Text('Copy'),
             onTap: () {
               Navigator.pop(context);
+              Clipboard.setData(ClipboardData(text: message.text));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Message copied to clipboard'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
             },
           ),
+          
+          // Remove reaction option - show if user has reacted
+          if (_userHasReacted(message))
+            ListTile(
+              leading: const Icon(Icons.remove_circle, color: Colors.orange),
+              title: const Text('Remove Reaction'),
+              onTap: () {
+                Navigator.pop(context);
+                _removeUserReaction(message);
+              },
+            ),
           if (message.senderId == _chatService.currentUser?.uid)
             ListTile(
               leading: const Icon(Icons.delete, color: Colors.red),
