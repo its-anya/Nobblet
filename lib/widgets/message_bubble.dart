@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 import '../widgets/file_preview_widget.dart';
@@ -12,6 +15,8 @@ class MessageBubble extends StatelessWidget {
   final Function(Message, String)? onReaction;
   final Function(Message)? onDelete;
   final Function(Message, double, String, bool)? onFileProgress;
+  final Function(Message, String)? onReactionClick;
+  final String? currentUserId;
   
   const MessageBubble({
     Key? key,
@@ -22,6 +27,8 @@ class MessageBubble extends StatelessWidget {
     this.onReaction,
     this.onDelete,
     this.onFileProgress,
+    this.onReactionClick,
+    this.currentUserId,
   }) : super(key: key);
 
   @override
@@ -96,12 +103,10 @@ class MessageBubble extends StatelessWidget {
                               top: message.replyToMessageId != null ? 8 : 12,
                               bottom: 8,
                             ),
-                            child: Text(
+                            child: _buildClickableText(
                               message.text.isEmpty && message.hasFile ? 'Shared a file' : message.text,
-                              style: TextStyle(
-                                color: isMe ? Colors.white : AppTheme.lightTextColor,
-                                fontSize: 15,
-                              ),
+                              isMe ? Colors.white : AppTheme.lightTextColor,
+                              isMe,
                             ),
                           ),
                         
@@ -172,7 +177,13 @@ class MessageBubble extends StatelessWidget {
             title: const Text('Copy'),
             onTap: () {
               Navigator.pop(context);
-              // Implement copy functionality
+              Clipboard.setData(ClipboardData(text: message.text));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Message copied to clipboard'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
             },
           ),
           
@@ -365,6 +376,9 @@ class MessageBubble extends StatelessWidget {
   }
   
   Widget _buildReactions(BuildContext context) {
+    // Group reactions by emoji to avoid duplicates
+    final uniqueEmojis = message.reactions.values.toSet().toList();
+    
     return Container(
       margin: EdgeInsets.only(
         top: 4,
@@ -373,21 +387,62 @@ class MessageBubble extends StatelessWidget {
       ),
       child: Wrap(
         spacing: 4,
-        children: message.reactions.entries.map((entry) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppTheme.secondaryColor.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              entry.value,
-              style: const TextStyle(fontSize: 12),
+        children: uniqueEmojis.map((emoji) {
+          final count = _getReactionCount(emoji);
+          final hasUserReacted = currentUserId != null && 
+              message.reactions.containsKey(currentUserId) && 
+              message.reactions[currentUserId] == emoji;
+          
+          return GestureDetector(
+            onTap: () {
+              if (onReactionClick != null) {
+                onReactionClick!(message, emoji);
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: hasUserReacted 
+                    ? AppTheme.accentColor.withOpacity(0.3)
+                    : AppTheme.secondaryColor.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: hasUserReacted 
+                      ? AppTheme.accentColor
+                      : AppTheme.accentColor.withOpacity(0.3),
+                  width: hasUserReacted ? 2 : 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    emoji,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: hasUserReacted 
+                          ? AppTheme.accentColor
+                          : AppTheme.secondaryTextColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }).toList(),
       ),
     );
+  }
+
+  // Get count of how many people reacted with the same emoji
+  int _getReactionCount(String emoji) {
+    return message.reactions.values.where((reaction) => reaction == emoji).length;
   }
   
   String _formatTimestamp(DateTime timestamp) {
@@ -408,6 +463,87 @@ class MessageBubble extends StatelessWidget {
     } else {
       // Older messages
       return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+    }
+  }
+
+  // Build text with clickable URLs
+  Widget _buildClickableText(String text, Color textColor, bool isMyMessage) {
+    // URL regex pattern
+    final urlRegex = RegExp(
+      r'https?://[^\s]+',
+      caseSensitive: false,
+    );
+    
+    final matches = urlRegex.allMatches(text);
+    
+    if (matches.isEmpty) {
+      // No URLs found, return simple text
+      return Text(
+        text,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 15,
+        ),
+      );
+    }
+    
+    // Build RichText with clickable URLs
+    List<TextSpan> spans = [];
+    int currentIndex = 0;
+    
+    for (final match in matches) {
+      // Add text before URL
+      if (match.start > currentIndex) {
+        spans.add(TextSpan(
+          text: text.substring(currentIndex, match.start),
+          style: TextStyle(
+            color: textColor,
+            fontSize: 15,
+          ),
+        ));
+      }
+      
+      // Add clickable URL
+      final url = match.group(0)!;
+      spans.add(TextSpan(
+        text: url,
+        style: TextStyle(
+          color: isMyMessage ? Colors.cyanAccent : Colors.lightBlue,
+          fontSize: 15,
+          decoration: TextDecoration.underline,
+          fontWeight: FontWeight.w500,
+        ),
+        recognizer: TapGestureRecognizer()..onTap = () => _launchURL(url),
+      ));
+      
+      currentIndex = match.end;
+    }
+    
+    // Add remaining text after last URL
+    if (currentIndex < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(currentIndex),
+        style: TextStyle(
+          color: textColor,
+          fontSize: 15,
+        ),
+      ));
+    }
+    
+    return RichText(
+      text: TextSpan(children: spans),
+    );
+  }
+  
+  // Launch URL
+  void _launchURL(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      print('Error launching URL: $e');
     }
   }
 } 
