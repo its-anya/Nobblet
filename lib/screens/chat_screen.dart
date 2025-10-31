@@ -15,6 +15,7 @@ import 'admin_panel_screen.dart';
 import '../widgets/message_bubble.dart';
 import '../services/appwrite_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/scheduler.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -49,6 +50,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   // Map to store private message streams by user ID
   final Map<String, Stream<List<Message>>> _privateMessageStreams = {};
 
+  // Pagination state - public
+  final ScrollController _publicScrollController = ScrollController();
+  final List<Message> _publicMessagesPaged = [];
+  DateTime? _lastPublicStartAfter;
+  bool _isFetchingMorePublic = false;
+  bool _hasMorePublic = true;
+
+  // Pagination state - private (per user)
+  final Map<String, ScrollController> _privateScrollControllers = {};
+  final Map<String, List<Message>> _privateMessagesPaged = {};
+  final Map<String, DateTime?> _lastPrivateStartAfter = {};
+  final Map<String, bool> _isFetchingMorePrivate = {};
+  final Map<String, bool> _hasMorePrivate = {};
+
   // Default reaction emojis
   final List<String> _defaultReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
@@ -71,6 +86,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
     
     // Listen for text changes to enable/disable send button
     _messageController.addListener(_updateSendButtonState);
+
+    // Scroll listener for public chat pagination
+    _publicScrollController.addListener(_handlePublicScroll);
   }
 
   void _handleTabChange() {
@@ -92,6 +110,121 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
     if (canSend != _canSendMessage) {
       setState(() {
         _canSendMessage = canSend;
+      });
+    }
+  }
+
+  // Ensure a private scroll controller exists and has a listener
+  ScrollController _getPrivateScrollController(String userId) {
+    if (_privateScrollControllers[userId] != null) return _privateScrollControllers[userId]!;
+    final controller = ScrollController();
+    controller.addListener(() => _handlePrivateScroll(userId));
+    _privateScrollControllers[userId] = controller;
+    return controller;
+  }
+
+  void _handlePublicScroll() {
+    if (!_hasMorePublic || _isFetchingMorePublic) return;
+    final position = _publicScrollController.position;
+    if (!position.hasPixels || !position.hasContentDimensions) return;
+    // With reverse: true, reaching near the visual top corresponds to maxScrollExtent
+    if (position.pixels >= position.maxScrollExtent - 200) {
+      _loadMorePublic();
+    }
+  }
+
+  void _handlePrivateScroll(String userId) {
+    if (_hasMorePrivate[userId] == false || _isFetchingMorePrivate[userId] == true) return;
+    final controller = _privateScrollControllers[userId];
+    if (controller == null) return;
+    final position = controller.position;
+    if (!position.hasPixels || !position.hasContentDimensions) return;
+    if (position.pixels >= position.maxScrollExtent - 200) {
+      _loadMorePrivate(userId);
+    }
+  }
+
+  Future<void> _loadMorePublic() async {
+    if (_isFetchingMorePublic || !_hasMorePublic) return;
+    setState(() {
+      _isFetchingMorePublic = true;
+    });
+
+    final oldMax = _publicScrollController.hasClients ? _publicScrollController.position.maxScrollExtent : 0.0;
+    try {
+      final older = await _chatService.getPublicMessagesPage(startAfter: _lastPublicStartAfter, limit: 50);
+      if (older.isEmpty) {
+        setState(() {
+          _hasMorePublic = false;
+          _isFetchingMorePublic = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _publicMessagesPaged.addAll(older);
+        _lastPublicStartAfter = _publicMessagesPaged.isNotEmpty ? _publicMessagesPaged.last.timestamp : _lastPublicStartAfter;
+        _isFetchingMorePublic = false;
+      });
+
+      // Preserve scroll position to avoid jump
+      if (_publicScrollController.hasClients) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          final newMax = _publicScrollController.position.maxScrollExtent;
+          final delta = newMax - oldMax;
+          final newPixels = _publicScrollController.position.pixels + delta;
+          if (newPixels <= _publicScrollController.position.maxScrollExtent) {
+            _publicScrollController.jumpTo(newPixels);
+          }
+        });
+      }
+    } catch (_) {
+      setState(() {
+        _isFetchingMorePublic = false;
+      });
+    }
+  }
+
+  Future<void> _loadMorePrivate(String userId) async {
+    if (_isFetchingMorePrivate[userId] == true || _hasMorePrivate[userId] == false) return;
+    _isFetchingMorePrivate[userId] = true;
+    final controller = _getPrivateScrollController(userId);
+    final oldMax = controller.hasClients ? controller.position.maxScrollExtent : 0.0;
+    try {
+      final older = await _chatService.getPrivateMessagesPage(
+        userId,
+        startAfter: _lastPrivateStartAfter[userId],
+        limit: 50,
+      );
+      if (older.isEmpty) {
+        setState(() {
+          _hasMorePrivate[userId] = false;
+          _isFetchingMorePrivate[userId] = false;
+        });
+        return;
+      }
+
+      setState(() {
+        final list = _privateMessagesPaged[userId] ?? [];
+        list.addAll(older);
+        _privateMessagesPaged[userId] = list;
+        _lastPrivateStartAfter[userId] = list.isNotEmpty ? list.last.timestamp : _lastPrivateStartAfter[userId];
+        _isFetchingMorePrivate[userId] = false;
+      });
+
+      if (controller.hasClients) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          final newMax = controller.position.maxScrollExtent;
+          final delta = newMax - oldMax;
+          final newPixels = controller.position.pixels + delta;
+          if (newPixels <= controller.position.maxScrollExtent) {
+            controller.jumpTo(newPixels);
+          }
+        });
+      }
+    } catch (_) {
+      setState(() {
+        _isFetchingMorePrivate[userId] = false;
       });
     }
   }
@@ -131,6 +264,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     _uploadingMessagesNotifier.dispose();
+
+    // Dispose scroll controllers
+    _publicScrollController.dispose();
+    for (final controller in _privateScrollControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -506,6 +645,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   void _selectUser(ChatUser user) {
     setState(() {
       _selectedUser = user;
+      // Initialize pagination state for this user if needed
+      _privateMessagesPaged.putIfAbsent(user.id, () => []);
+      _lastPrivateStartAfter.putIfAbsent(user.id, () => null);
+      _hasMorePrivate.putIfAbsent(user.id, () => true);
+      _isFetchingMorePrivate.putIfAbsent(user.id, () => false);
     });
   }
 
@@ -1214,11 +1358,58 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
         
         List<Message> messages = snapshot.data ?? [];
         
+        // Merge stream messages into paged lists (for realtime + pagination)
+        if (isPublic) {
+          // Initialize or prepend new messages
+          if (_publicMessagesPaged.isEmpty && messages.isNotEmpty) {
+            _publicMessagesPaged.clear();
+            _publicMessagesPaged.addAll(messages);
+            _lastPublicStartAfter = _publicMessagesPaged.isNotEmpty ? _publicMessagesPaged.last.timestamp : null;
+            _hasMorePublic = true;
+          } else if (messages.isNotEmpty) {
+            final existingIds = _publicMessagesPaged.map((m) => m.id).toSet();
+            final List<Message> newOnes = [];
+            for (final m in messages) {
+              if (!existingIds.contains(m.id)) newOnes.add(m);
+            }
+            if (newOnes.isNotEmpty) {
+              _publicMessagesPaged.insertAll(0, newOnes);
+            }
+            if (_lastPublicStartAfter == null && _publicMessagesPaged.isNotEmpty) {
+              _lastPublicStartAfter = _publicMessagesPaged.last.timestamp;
+            }
+          }
+        } else if (userId != null) {
+          final current = _privateMessagesPaged[userId] ?? [];
+          if (current.isEmpty && messages.isNotEmpty) {
+            _privateMessagesPaged[userId] = [...messages];
+            _lastPrivateStartAfter[userId] = messages.isNotEmpty ? messages.last.timestamp : null;
+            _hasMorePrivate[userId] = true;
+          } else if (messages.isNotEmpty) {
+            final existingIds = current.map((m) => m.id).toSet();
+            final List<Message> newOnes = [];
+            for (final m in messages) {
+              if (!existingIds.contains(m.id)) newOnes.add(m);
+            }
+            if (newOnes.isNotEmpty) {
+              current.insertAll(0, newOnes);
+              _privateMessagesPaged[userId] = current;
+            }
+            if (_lastPrivateStartAfter[userId] == null && current.isNotEmpty) {
+              _lastPrivateStartAfter[userId] = current.last.timestamp;
+            }
+          }
+        }
+        
         // Use ValueListenableBuilder for uploading messages to prevent full widget rebuilds
         return ValueListenableBuilder<Map<String, Message>>(
           valueListenable: _uploadingMessagesNotifier,
           builder: (context, uploadingMessages, child) {
-            final List<Message> allMessages = [...messages];
+            // Base list comes from our paged lists
+            final List<Message> base = isPublic
+                ? [..._publicMessagesPaged]
+                : (userId != null ? [...(_privateMessagesPaged[userId] ?? [])] : <Message>[]);
+            final List<Message> allMessages = [...base];
             
             // Add relevant uploading messages
             if (uploadingMessages.isNotEmpty) {
@@ -1266,6 +1457,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
                   key: PageStorageKey<String>(isPublic ? 'public_messages' : 'private_$userId'),
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                   reverse: true,
+                  controller: isPublic ? _publicScrollController : (userId != null ? _getPrivateScrollController(userId) : null),
                   itemCount: allMessages.length,
                   itemBuilder: (context, index) {
                     final message = allMessages[index];

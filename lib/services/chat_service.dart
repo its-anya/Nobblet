@@ -343,6 +343,51 @@ class ChatService {
     }
   }
 
+  // Get users who reacted to a message with a specific emoji
+  Future<List<ChatUser>> getUsersWhoReacted(Message message, String emoji) async {
+    try {
+      // Collect user IDs that reacted with the given emoji
+      final List<String> userIds = message.reactions.entries
+          .where((entry) => entry.value == emoji)
+          .map((entry) => entry.key)
+          .toList();
+
+      if (userIds.isEmpty) return [];
+
+      // Firestore whereIn has a limit; query in small batches
+      const int batchSize = 10;
+      final List<ChatUser> users = [];
+
+      for (int i = 0; i < userIds.length; i += batchSize) {
+        final batch = userIds.sublist(
+          i,
+          i + batchSize > userIds.length ? userIds.length : i + batchSize,
+        );
+
+        final query = await _userCollection
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+
+        for (final doc in query.docs) {
+          users.add(ChatUser.fromFirestore(doc));
+        }
+      }
+
+      // Keep order: by occurrence in userIds
+      final Map<String, ChatUser> idToUser = {for (final u in users) u.id: u};
+      final ordered = <ChatUser>[];
+      for (final id in userIds) {
+        final u = idToUser[id];
+        if (u != null) ordered.add(u);
+      }
+
+      return ordered;
+    } catch (e) {
+      print('Error fetching users who reacted: $e');
+      return [];
+    }
+  }
+
   // Get a specific message by ID (for reply feature)
   Future<Message?> getMessageById(String messageId) async {
     try {
@@ -404,6 +449,24 @@ class ChatService {
     });
   }
 
+  // Paginated fetch of older public messages (older than startAfter)
+  Future<List<Message>> getPublicMessagesPage({
+    DateTime? startAfter,
+    int limit = 50,
+  }) async {
+    Query query = _messagesCollection
+        .where('isPublic', isEqualTo: true)
+        .orderBy('timestamp', descending: true)
+        .limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfter([Timestamp.fromDate(startAfter)]);
+    }
+
+    final snapshot = await query.get();
+    return snapshot.docs.map((doc) => Message.fromFirestore(doc)).toList();
+  }
+
   // Get private messages between two users
   Stream<List<Message>> getPrivateMessages(String otherUserId) {
     final user = currentUser;
@@ -431,6 +494,40 @@ class ChatService {
           messages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
           return messages;
         });
+  }
+
+  // Paginated fetch of older private messages with a specific user
+  Future<List<Message>> getPrivateMessagesPage(
+    String otherUserId, {
+    DateTime? startAfter,
+    int limit = 50,
+  }) async {
+    final user = currentUser;
+    if (user == null) return [];
+
+    Query query = _messagesCollection
+        .where('isPublic', isEqualTo: false)
+        .where('participants', arrayContainsAny: [user.uid, otherUserId])
+        .orderBy('timestamp', descending: true)
+        .limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfter([Timestamp.fromDate(startAfter)]);
+    }
+
+    final snapshot = await query.get();
+
+    final List<Message> messages = [];
+    for (var doc in snapshot.docs) {
+      final msg = Message.fromFirestore(doc);
+      if ((msg.senderId == user.uid && msg.receiverId == otherUserId) ||
+          (msg.senderId == otherUserId && msg.receiverId == user.uid)) {
+        messages.add(msg);
+      }
+    }
+
+    messages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return messages;
   }
 
   // Get all users for search
